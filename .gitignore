@@ -1,0 +1,36 @@
+# cached audio envelopes / decoded previews
+.synccache/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# generated output (produced per project by the export step)
+sync_placement.csv
+build_timeline_in_resolve.py
+out/
+outputs/
+
+# media - never commit footage or audio
+*.mp4
+*.MP4
+*.mov
+*.MOV
+*.mxf
+*.MXF
+*.braw
+*.avi
+*.mkv
+*.wav
+*.WAV
+*.aif
+*.aiff
+*.flac
+
+# os cruft
+.gittest/
+.DS_Store
+Thumbs.db
+desktop.ini

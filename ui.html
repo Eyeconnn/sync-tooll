@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sync Tool — waveform sync for footage without timecode</title>
+<style>
+/* ---- tokens: neutral dark, one confident accent (no AI purple gradients) ---- */
+:root{
+  --bg:#0f1115; --surface:#171a21; --raised:#1d212a; --line:#272c37; --line-soft:#20242d;
+  --txt:#e6e8ec; --muted:#949aa6; --faint:#6b7280;
+  --accent:#4f8cff; --accent-dim:#2a4a80; --accent-soft:rgba(79,140,255,.12);
+  --ok:#3fb950; --warn:#d9a441; --bad:#e5534b; --man:#4f8cff; --ref:#5b6472;
+  --r-lg:12px; --r-md:9px; --r-sm:6px;
+  --t:170ms cubic-bezier(.4,0,.2,1);
+  --sh:0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.18);
+}
+@media (prefers-reduced-motion:reduce){ *{transition:none!important;animation:none!important} }
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--txt);
+  font:14px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.01em}
+p{margin:0 0 10px}
+a{color:var(--accent)}
+svg{flex:none}
+
+/* ---- header + stepper ---- */
+header{position:sticky;top:0;z-index:30;background:rgba(15,17,21,.92);
+  backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.hwrap{max-width:1240px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:14px}
+.brand{display:flex;align-items:center;gap:10px}
+.brand h1{font-size:15px}
+.brand .tag{color:var(--muted);font-size:12px}
+.spacer{flex:1}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:4px 10px;
+  border:1px solid var(--line);border-radius:999px;color:var(--muted);background:var(--surface)}
+.chip.good{color:var(--ok);border-color:rgba(63,185,80,.35)}
+.chip.bad{color:var(--bad);border-color:rgba(229,83,75,.4)}
+
+.steps{max-width:1240px;margin:0 auto;padding:0 24px 12px;display:flex;gap:6px;flex-wrap:wrap}
+.step{display:flex;align-items:center;gap:9px;padding:7px 13px 7px 8px;border-radius:999px;
+  font-size:12.5px;color:var(--muted);border:1px solid transparent;transition:var(--t)}
+.step .n{width:21px;height:21px;border-radius:50%;display:grid;place-items:center;
+  background:var(--raised);color:var(--muted);font-size:11px;font-weight:600;border:1px solid var(--line)}
+.step.active{color:var(--txt);background:var(--accent-soft);border-color:var(--accent-dim)}
+.step.active .n{background:var(--accent);color:#fff;border-color:var(--accent)}
+.step.done .n{background:rgba(63,185,80,.16);color:var(--ok);border-color:rgba(63,185,80,.4)}
+.step.done{color:var(--txt)}
+
+main{max-width:1240px;margin:0 auto;padding:20px 24px 80px}
+section{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:20px 22px;margin-bottom:18px;box-shadow:var(--sh)}
+section[aria-disabled="true"]{opacity:.5;pointer-events:none;filter:saturate(.6)}
+.shead{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.shead h2{font-size:15px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:16px}
+
+/* ---- controls ---- */
+button,input,select{font:inherit;color:var(--txt)}
+button{display:inline-flex;align-items:center;gap:7px;background:var(--raised);
+  border:1px solid var(--line);border-radius:var(--r-md);padding:8px 14px;cursor:pointer;
+  transition:var(--t)}
+button:hover{background:#232833;border-color:#333a47}
+button:active{transform:translateY(1px)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.primary:hover{background:#5d97ff;border-color:#5d97ff}
+button.ghost{background:transparent}
+button.mini{padding:4px 9px;font-size:12px;border-radius:var(--r-sm)}
+button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+input[type=text],input[type=number],select{background:#12151b;border:1px solid var(--line);
+  border-radius:var(--r-md);padding:8px 11px;transition:var(--t)}
+input[type=text]:hover,select:hover{border-color:#333a47}
+input:focus-visible,select:focus-visible,button:focus-visible,[tabindex]:focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px}
+input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;cursor:pointer}
+label{cursor:pointer}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.muted{color:var(--muted)} .faint{color:var(--faint)}
+.err{color:var(--bad)} .good{color:var(--ok)}
+
+/* ---- folder list ---- */
+.folder{display:flex;align-items:center;gap:11px;background:var(--raised);
+  border:1px solid var(--line);border-radius:var(--r-md);padding:10px 13px;margin-bottom:8px;
+  transition:var(--t)}
+.folder:hover{border-color:#333a47}
+.folder .path{flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.empty{border:1px dashed var(--line);border-radius:var(--r-md);padding:26px;text-align:center;
+  color:var(--muted);font-size:13px}
+
+/* ---- table ---- */
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:8px 10px;font-size:11.5px;font-weight:500;color:var(--faint);
+  text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--line)}
+td{padding:10px;border-bottom:1px solid var(--line-soft);font-size:13px;vertical-align:middle}
+tr.grp:hover td{background:rgba(255,255,255,.014)}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:2px 8px;
+  border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.pill.cam{color:var(--accent);border-color:var(--accent-dim)}
+.pill.ref{color:var(--ok);border-color:rgba(63,185,80,.35)}
+.tag{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.tag.warnt{border-color:rgba(217,164,65,.45);color:var(--warn)}
+
+/* ---- channels / sparkline ---- */
+.chrow{display:flex;align-items:center;gap:12px;padding:7px 0}
+canvas.spark{width:100%;max-width:420px;height:30px;background:#12151b;border:1px solid var(--line);
+  border-radius:var(--r-sm);cursor:pointer;transition:var(--t)}
+canvas.spark:hover{border-color:var(--accent-dim)}
+.panel{background:#141821;border:1px solid var(--line);border-radius:var(--r-md);
+  padding:14px 16px;margin:2px 0 6px}
+
+/* ---- review ---- */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px}
+.stat{background:var(--raised);border:1px solid var(--line);border-radius:var(--r-md);padding:13px 15px}
+.stat .n{font-size:22px;font-weight:600;line-height:1.2}
+.stat .l{font-size:12px;color:var(--muted);margin-top:2px}
+.lane{position:relative;height:38px;background:#12151b;border:1px solid var(--line-soft);
+  border-radius:var(--r-sm);overflow:hidden;flex:1}
+.lane .clip{position:absolute;top:4px;height:30px;border-radius:3px;cursor:pointer;
+  border:1px solid rgba(0,0,0,.35);transition:filter var(--t)}
+.lane .clip:hover{filter:brightness(1.25)}
+.lane .clip.sel{outline:2px solid #fff;outline-offset:-1px;z-index:2}
+.locked{background:var(--ok)} .approx{background:var(--warn)}
+.fallback{background:var(--bad)} .manual{background:var(--man)} .reference{background:var(--ref)}
+.timecode{background:#7ea6d8}
+.lanerow{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.lanelabel{width:190px;font-size:12.5px;color:var(--muted);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin-bottom:14px}
+.dot{width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:6px;vertical-align:-1px}
+canvas.wave{width:100%;height:140px;background:#12151b;border:1px solid var(--line);
+  border-radius:var(--r-md)}
+.kv{display:grid;grid-template-columns:150px 1fr;gap:6px 14px;font-size:13px;margin:12px 0}
+.kv div:nth-child(odd){color:var(--muted)}
+pre{background:#12151b;border:1px solid var(--line);border-radius:var(--r-md);padding:12px;
+  font-size:12px;overflow:auto;white-space:pre-wrap}
+progress{width:100%;max-width:340px;height:7px;border-radius:99px;overflow:hidden}
+progress::-webkit-progress-bar{background:#12151b;border-radius:99px}
+progress::-webkit-progress-value{background:var(--accent);border-radius:99px}
+
+/* ---- modal + toast ---- */
+.modal{position:fixed;inset:0;background:rgba(8,10,14,.7);display:none;align-items:center;
+  justify-content:center;z-index:60;padding:20px}
+.modal>div{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
+  width:min(660px,100%);max-height:78vh;padding:20px;display:flex;flex-direction:column;box-shadow:var(--sh)}
+.dirlist{overflow:auto;flex:1;margin:12px 0;border:1px solid var(--line);border-radius:var(--r-md);
+  background:#12151b}
+.dirlist button{width:100%;justify-content:flex-start;background:none;border:0;border-radius:0;
+  padding:9px 13px;font-size:13px}
+.dirlist button:hover{background:var(--accent-soft)}
+#toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(80px);
+  background:var(--raised);border:1px solid var(--line);border-radius:var(--r-md);
+  padding:11px 18px;font-size:13px;box-shadow:var(--sh);opacity:0;transition:var(--t);z-index:80}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ---- full-screen sync editor ---- */
+#editor{position:fixed;inset:0;z-index:70;background:var(--bg);display:none;
+  grid-template-rows:auto 1fr;overflow:hidden}
+#editor.on{display:grid}
+.edbar{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--line);
+  background:var(--surface)}
+.edbody{display:grid;grid-template-columns:270px 1fr;overflow:hidden}
+.edlist{border-right:1px solid var(--line);overflow:auto;background:var(--surface)}
+.edlist button{width:100%;justify-content:flex-start;gap:9px;border:0;border-radius:0;
+  border-bottom:1px solid var(--line-soft);padding:10px 14px;font-size:12.5px;background:none}
+.edlist button:hover{background:var(--accent-soft)}
+.edlist button.cur{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+.edmain{overflow:auto;padding:18px 22px}
+.wavebox{position:relative;background:#12151b;border:1px solid var(--line);border-radius:var(--r-md);
+  margin-bottom:10px;overflow:hidden}
+.wavebox canvas{display:block;width:100%;height:150px}
+.wavebox .lbl{position:absolute;top:7px;left:10px;font-size:11.5px;color:var(--muted);
+  background:rgba(18,21,27,.8);padding:2px 7px;border-radius:4px;pointer-events:none}
+.wavebox.clip{cursor:ew-resize}
+.centerline{position:absolute;top:0;bottom:0;left:50%;width:1px;background:rgba(255,255,255,.28);
+  pointer-events:none}
+.offbig{font-size:26px;font-weight:600;font-variant-numeric:tabular-nums}
+@media (max-width:900px){ .edbody{grid-template-columns:1fr} .edlist{display:none} }
+
+@media (max-width:900px){
+  .hwrap,.steps,main{padding-left:16px;padding-right:16px}
+  .lanelabel{width:120px}
+  .kv{grid-template-columns:110px 1fr}
+}
+@media (max-width:560px){
+  .step span.lbl{display:none}
+  input[type=text]{width:100%!important}
+}
+</style>
+
+<header>
+  <div class="hwrap">
+    <div class="brand">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4f8cff" stroke-width="2"
+           stroke-linecap="round"><path d="M3 12h3l3-8 4 16 3-8h5"/></svg>
+      <h1>Sync Tool</h1>
+      <span class="tag">waveform sync for footage without timecode</span>
+    </div>
+    <div class="spacer"></div>
+    <span id="ffchip" class="chip">checking ffmpeg…</span>
+  </div>
+  <nav class="steps" id="stepper" aria-label="Progress">
+    <div class="step active" data-s="1"><span class="n">1</span><span class="lbl">Add media</span></div>
+    <div class="step" data-s="2"><span class="n">2</span><span class="lbl">Set up tracks</span></div>
+    <div class="step" data-s="3"><span class="n">3</span><span class="lbl">Check the sync</span></div>
+    <div class="step" data-s="4"><span class="n">4</span><span class="lbl">Send to Resolve</span></div>
+  </nav>
+</header>
+
+<main>
+  <!-- 1 -->
+  <section id="s1">
+    <div class="shead">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+      <h2>Where's your media?</h2>
+    </div>
+    <p class="sub">Add the folders holding your footage and your separately-recorded audio.
+       They can live on different drives.</p>
+    <div id="folders"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" onclick="pickNative()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add folder</button>
+      <button class="ghost" onclick="openBrowser()">Browse here</button>
+      <input type="text" id="manual" style="width:300px" placeholder="…or paste a path"
+             onkeydown="if(event.key==='Enter')addManual()">
+      <button class="ghost" onclick="addManual()">Add</button>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="primary" onclick="discover()" id="scanbtn">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        Scan folders</button>
+      <span id="scanmsg" class="muted"></span>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section id="s2" aria-disabled="true">
+    <div class="shead">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <h2>Set up your tracks</h2>
+    </div>
+    <p class="sub">Mark your separate audio recordings as <b>reference</b> — everything else gets synced
+       to them. For each camera, open <b>Channels</b> to see and hear what its audio actually contains.</p>
+    <div style="overflow-x:auto"><table id="groups"></table></div>
+    <div id="playerbox" class="panel" style="display:none">
+      <div class="row"><audio id="player" controls style="height:34px;flex:1;max-width:420px"></audio>
+      <span id="playlbl" class="muted" style="font-size:12.5px"></span></div>
+    </div>
+    <div class="row" style="margin-top:16px">
+      <button class="primary" onclick="runSync()" id="syncbtn">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"/></svg>
+        Sync everything</button>
+      <progress id="prog" value="0" max="100" style="display:none"></progress>
+      <span id="progmsg" class="muted"></span>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section id="s3" aria-disabled="true">
+    <div class="shead">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+      <h2>Check the sync</h2>
+    </div>
+    <p class="sub">Green is locked to the sample. Amber is within about half a second.
+       Red couldn't be matched — worth a look. Click any clip to hear and see it against its reference.</p>
+    <div class="stats" id="stats"></div>
+    <div class="legend">
+      <span><i class="dot locked"></i>Locked</span>
+      <span><i class="dot approx"></i>Close (&plusmn;0.5s)</span>
+      <span><i class="dot fallback"></i>Needs a look</span>
+      <span><i class="dot timecode"></i>From timecode</span>
+      <span><i class="dot manual"></i>You adjusted it</span>
+      <span><i class="dot reference"></i>Reference audio</span>
+    </div>
+    <div class="row" style="margin-bottom:14px">
+      <button class="primary" onclick="openEditor()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>
+        Open sync editor</button>
+      <span class="faint" style="font-size:12.5px">Full screen — big waveforms, playback, frame-level nudging</span>
+    </div>
+    <div id="lanes"></div>
+    <div id="detail" style="display:none;margin-top:20px;border-top:1px solid var(--line);padding-top:18px">
+      <h3 id="dname" style="font-size:14px"></h3>
+      <div class="kv" id="dkv"></div>
+      <canvas class="wave" id="wave" width="1400" height="140"></canvas>
+      <p class="faint" style="font-size:12px;margin-top:8px">
+        Blue is this clip, grey is the reference. Lined-up peaks mean good sync.</p>
+      <div class="row">
+        <button class="mini" onclick="nudge(-1)">−1s</button>
+        <button class="mini" onclick="nudge(-0.1)">−0.1s</button>
+        <button class="mini" onclick="nudge(-0.04)">−1 frame</button>
+        <button class="mini" onclick="nudge(0.04)">+1 frame</button>
+        <button class="mini" onclick="nudge(0.1)">+0.1s</button>
+        <button class="mini" onclick="nudge(1)">+1s</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section id="s4" aria-disabled="true">
+    <div class="shead">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>
+      <h2>Send it to your editor</h2>
+    </div>
+    <p class="sub">Exports a timeline XML that imports into <b>Premiere Pro</b>,
+       <b>DaVinci Resolve</b>, Final Cut 7 and Media Composer — plus a placement CSV
+       and an optional Resolve script. Nothing touches your media.</p>
+    <div class="row" style="gap:14px;margin-bottom:12px">
+      <label class="row" style="gap:7px"><span class="faint" style="font-size:12px">Sequence name</span>
+        <input type="text" id="seqname" style="width:200px" value="Synced Timeline"></label>
+      <label class="row" style="gap:7px"><span class="faint" style="font-size:12px">Timeline fps</span>
+        <select id="seqfps">
+          <option>23.976</option><option>24</option><option selected>25</option>
+          <option>29.97</option><option>30</option><option>50</option><option>59.94</option><option>60</option>
+        </select></label>
+    </div>
+    <div class="row">
+      <button class="primary" onclick="doExport()">Export files</button>
+      <span id="expmsg" class="muted"></span>
+    </div>
+    <div id="exphow" style="display:none;margin-top:16px">
+      <div class="panel">
+        <b style="font-size:13px">Premiere Pro</b>
+        <p class="muted" style="font-size:12.5px;margin:6px 0 0">
+          File › Import… → pick <code id="xmlname">synced_timeline.xml</code>.
+          Premiere builds a sequence with your tracks and clip positions intact.</p>
+      </div>
+      <div class="panel">
+        <b style="font-size:13px">DaVinci Resolve</b>
+        <p class="muted" style="font-size:12.5px;margin:6px 0 0">
+          File › Import › Timeline › Import AAF/EDL/XML… → the same XML.
+          (Or run the exported Python script in Workspace › Console — that route also
+          applies your metadata and clip colours.)</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="modal" id="browser" role="dialog" aria-modal="true"><div>
+  <h2 style="font-size:14px">Choose a folder</h2>
+  <div class="muted" id="curpath" style="font-size:12.5px;margin-top:6px;word-break:break-all"></div>
+  <div class="dirlist" id="dirlist"></div>
+  <div class="row">
+    <button class="primary" onclick="useCurrent()">Use this folder</button>
+    <button class="ghost" onclick="closeBrowser()">Cancel</button>
+  </div>
+</div></div>
+<div class="modal" id="subpicker" role="dialog" aria-modal="true"><div>
+  <h2 style="font-size:14px">Which folders should we scan?</h2>
+  <div class="muted" id="subroot" style="font-size:12.5px;margin-top:6px;word-break:break-all"></div>
+  <div class="row" style="margin-top:12px">
+    <button class="mini ghost" onclick="allSubs(true)">Select all</button>
+    <button class="mini ghost" onclick="allSubs(false)">Select none</button>
+    <span class="faint" id="subcount" style="font-size:12px"></span>
+  </div>
+  <div class="dirlist" id="sublist" style="padding:4px 0"></div>
+  <div class="row">
+    <button class="primary" onclick="addSelectedSubs()">Add selected</button>
+    <button class="ghost" onclick="closeSub()">Cancel</button>
+  </div>
+</div></div>
+<div id="editor">
+  <div class="edbar">
+    <b style="font-size:14px">Sync editor</b>
+    <select id="edfilter" onchange="edBuildList()">
+      <option value="attention">Needs attention</option>
+      <option value="all">All clips</option>
+      <option value="fallback">No match only</option>
+      <option value="approx">Close only</option>
+      <option value="locked">Locked only</option>
+    </select>
+    <span id="edpos" class="muted" style="font-size:12.5px"></span>
+    <div class="spacer" style="flex:1"></div>
+    <button class="mini" onclick="edStep(-1)">← Prev</button>
+    <button class="mini" onclick="edStep(1)">Next →</button>
+    <button class="primary" onclick="closeEditor()">Done</button>
+  </div>
+  <div class="edbody">
+    <div class="edlist" id="edlist"></div>
+    <div class="edmain">
+      <div id="edhead" style="margin-bottom:14px"></div>
+
+      <div class="wavebox clip" id="edclipbox">
+        <span class="lbl">This clip — drag left/right to adjust</span>
+        <canvas id="edclip" width="1800" height="150"></canvas>
+        <div class="centerline"></div>
+      </div>
+      <div class="wavebox">
+        <span class="lbl">Reference — <span id="edrefname"></span></span>
+        <canvas id="edref" width="1800" height="150"></canvas>
+        <div class="centerline"></div>
+      </div>
+
+      <div class="row" style="margin:14px 0 6px;gap:18px">
+        <div>
+          <div class="faint" style="font-size:11.5px">Offset from detected</div>
+          <div class="offbig" id="edoff">0.000s</div>
+          <div class="faint" style="font-size:11.5px" id="edframes">0 frames @25fps</div>
+        </div>
+        <div style="flex:1"></div>
+        <div>
+          <div class="faint" style="font-size:11.5px;margin-bottom:4px">Listen</div>
+          <div class="row" style="gap:6px">
+            <button onclick="edPlay('both')" id="edplayboth">▶ Both together</button>
+            <button class="mini" onclick="edPlay('clip')">Clip</button>
+            <button class="mini" onclick="edPlay('ref')">Reference</button>
+            <button class="mini" onclick="edStop()">Stop</button>
+          </div>
+        </div>
+      </div>
+      <p class="faint" style="font-size:12px;margin:0 0 12px">
+        Play both: in sync you hear one sound, out of sync you hear an echo or doubling.</p>
+
+      <div class="row" style="gap:6px;margin-bottom:12px">
+        <button class="mini" onclick="edNudge(-1)">−1s</button>
+        <button class="mini" onclick="edNudge(-0.1)">−0.1s</button>
+        <button class="mini" onclick="edNudge(-0.04)">−1f</button>
+        <button class="mini" onclick="edNudge(0.04)">+1f</button>
+        <button class="mini" onclick="edNudge(0.1)">+0.1s</button>
+        <button class="mini" onclick="edNudge(1)">+1s</button>
+        <span style="width:14px"></span>
+        <button class="mini" onclick="edReset()">Reset</button>
+        <button class="primary" onclick="edApply()">Apply offset</button>
+      </div>
+
+      <div class="row" style="gap:16px">
+        <label class="row" style="gap:7px"><span class="faint" style="font-size:12px">Zoom</span>
+          <select id="edzoom" onchange="edLoad()">
+            <option value="1">1 second</option><option value="3" selected>3 seconds</option>
+            <option value="10">10 seconds</option><option value="30">30 seconds</option>
+          </select></label>
+        <label class="row" style="gap:7px;flex:1"><span class="faint" style="font-size:12px">Position in clip</span>
+          <input type="range" id="edscrub" min="0" max="100" value="0" style="flex:1"
+                 oninput="edScrub()"></label>
+        <span class="faint" id="edtime" style="font-size:12px;min-width:70px"></span>
+      </div>
+      <p class="faint" style="font-size:12px;margin-top:12px">
+        Keys: ← → nudge one frame · Shift+← → 0.1s · Space play both · Esc close</p>
+    </div>
+  </div>
+</div>
+<div id="toast" role="status"></div>
+
+<script>
+/* Must be served by server.py - opened from disk every /api/ call is blocked. */
+const FILE_MODE = location.protocol === 'file:';
+if (FILE_MODE) {
+  document.body.innerHTML = `<div style="max-width:620px;margin:14vh auto;padding:0 20px;
+    font:14px/1.7 system-ui,sans-serif;color:#e6e8ec">
+    <h2 style="color:#e5534b">Open this through the app, not the file</h2>
+    <p>You opened <code>ui.html</code> straight from disk, so the browser blocks it from
+       reaching the sync engine.</p>
+    <p>Start the server instead — double-click <b>Start Sync Tool.bat</b>, or run:</p>
+    <pre style="background:#12151b;border:1px solid #272c37;border-radius:9px;padding:12px">python server.py</pre>
+    <p>then open <a href="http://localhost:8765" style="color:#4f8cff">http://localhost:8765</a>.</p></div>`;
+}
+
+let ROOTS=[], GROUPS=[], RESULTS=null, SEL=null, CUR="";
+const COLORS=["","Orange","Apricot","Yellow","Lime","Olive","Green","Teal","Navy",
+              "Blue","Purple","Violet","Pink","Tan","Beige","Brown","Chocolate"];
+const PREVIEW_SECS=45;
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const hms=x=>{x=Math.round(x);const p=n=>String(n).padStart(2,'0');
+  return p(x/3600|0)+':'+p((x%3600)/60|0)+':'+p(x%60)};
+const ICON={play:'<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+  trash:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>'};
+
+async function api(p,b){const r=await fetch(p,b?{method:'POST',
+  headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:{});return r.json()}
+function toast(msg,bad){const t=$('#toast');t.innerHTML=msg;t.style.borderColor=bad?'var(--bad)':'var(--line)';
+  t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),3200)}
+function setStep(n){document.querySelectorAll('.step').forEach(e=>{
+  const s=+e.dataset.s; e.classList.toggle('active',s===n); e.classList.toggle('done',s<n)})}
+function enable(id,on){$(id).setAttribute('aria-disabled',on?'false':'true')}
+
+/* ---------- step 1: folders ---------- */
+function renderFolders(){
+  $('#folders').innerHTML = ROOTS.length ? ROOTS.map((f,i)=>
+    `<div class="folder"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#949aa6"
+       stroke-width="2"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+     <span class="path" title="${esc(f)}">${esc(f)}</span>
+     <button class="mini ghost" title="Remove" onclick="ROOTS.splice(${i},1);renderFolders()">${ICON.trash}</button></div>`).join('')
+    : '<div class="empty">No folders yet — add the folder with your footage, and the one with your audio.</div>';
+}
+function addRoot(p){ if(p && !ROOTS.includes(p)){ROOTS.push(p);renderFolders();return true} return false }
+function addManual(){ const v=$('#manual').value.trim(); $('#manual').value=''; if(v)chooseFrom(v) }
+async function pickNative(){
+  const r=await api('/api/pickfolder',{});
+  if(r.error){ toast(esc(r.error),true); openBrowser(); } else chooseFrom(r.path);
+}
+
+/* After picking a directory, offer its media sub-folders to tick. */
+let SUBS=[];
+async function chooseFrom(path){
+  if(!path) return;
+  toast('Looking for media in '+esc(path.split(/[\\/]/).pop()));
+  const d=await api('/api/subfolders',{path});
+  if(d.error){ toast(esc(d.error),true); return }
+  SUBS=d.folders;
+  if(!SUBS.length){ toast('No media found in that folder',true); return }
+  if(SUBS.length===1){                       // nothing to choose between
+    addRoot(SUBS[0].path); renderFolders(); toast('Added '+esc(SUBS[0].name)); return;
+  }
+  $('#subroot').textContent=d.root;
+  SUBS.forEach(s=>s.pick = !ROOTS.includes(s.path));
+  renderSubs(); $('#subpicker').style.display='flex';
+}
+function renderSubs(){
+  $('#sublist').innerHTML=SUBS.map((s,i)=>{
+    const already=ROOTS.includes(s.path);
+    return `<label style="display:flex;align-items:center;gap:10px;padding:8px 14px;
+        ${already?'opacity:.55':''}">
+      <input type="checkbox" ${s.pick&&!already?'checked':''} ${already?'disabled':''}
+        onchange="SUBS[${i}].pick=this.checked;subCount()">
+      <span style="flex:1;padding-left:${s.depth*14}px;font-size:13px">
+        ${esc(s.rel==='.'?s.name+'  (top level)':s.rel)}</span>
+      <span class="pill ${s.kind==='audio'?'ref':'cam'}">${esc(s.kind)}</span>
+      <span class="faint" style="font-size:12px;min-width:64px;text-align:right">
+        ${s.count} file${s.count==1?'':'s'}${s.channels>1?' · '+s.channels+'ch':''}</span>
+      ${already?'<span class="tag">added</span>':''}</label>`;
+  }).join('');
+  subCount();
+}
+function subCount(){
+  const n=SUBS.filter(s=>s.pick&&!ROOTS.includes(s.path)).length;
+  $('#subcount').textContent=`${n} of ${SUBS.length} selected`;
+}
+function allSubs(on){ SUBS.forEach(s=>s.pick=on); renderSubs() }
+function closeSub(){ $('#subpicker').style.display='none' }
+function addSelectedSubs(){
+  let n=0; SUBS.forEach(s=>{ if(s.pick && addRoot(s.path)) n++ });
+  renderFolders(); closeSub();
+  toast(n?`Added ${n} folder${n==1?'':'s'}`:'Nothing new selected', !n);
+}
+async function openBrowser(){ $('#browser').style.display='flex'; await browseTo("") }
+function closeBrowser(){ $('#browser').style.display='none' }
+async function browseTo(p){
+  const d=await api('/api/browse?path='+encodeURIComponent(p));
+  CUR=d.path||""; $('#curpath').textContent=CUR||'Drives';
+  const item=(label,path)=>`<button onclick="browseTo('${path.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')">${esc(label)}</button>`;
+  let h = d.parent ? item('↑  up one level',d.parent) : '';
+  h += d.dirs.map(x=>item(x.split(/[\\/]/).filter(Boolean).pop()||x,x)).join('');
+  $('#dirlist').innerHTML=h||'<div class="empty" style="border:0">No sub-folders here</div>';
+}
+function useCurrent(){ const p=CUR; closeBrowser(); if(p)chooseFrom(p) }
+
+/* ---------- step 2: groups ---------- */
+async function discover(){
+  if(!ROOTS.length){ toast('Add at least one folder first',true); return }
+  $('#scanmsg').textContent='scanning…';
+  const d=await api('/api/discover',{roots:ROOTS});
+  if(d.error){ $('#scanmsg').innerHTML='<span class="err">'+esc(d.error)+'</span>'; return }
+  GROUPS=d.groups;
+  $('#scanmsg').innerHTML=`<span class="good">Found ${GROUPS.length} folders with media</span>`;
+  renderGroups(); enable('#s2',true); setStep(2);
+  $('#s2').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function renderGroups(){
+  let h='<tr><th>Folder</th><th>Files</th><th>Role</th><th>Sync by</th><th>Track</th><th>Track name</th>'
+       +'<th>Audio</th><th>Include</th></tr>';
+  GROUPS.forEach((g,i)=>{
+    if(g.track_name===undefined) g.track_name = g.name || g.folder.split(/[\\/]/).pop();
+    if(!g.meta) g.meta={};
+    const audio = g.kind=='audio'
+      ? `<button class="mini" onclick="playPreview(${i},0,0)">${ICON.play} Listen</button>`
+      : `<button class="mini" onclick="loadChannels(${i})">Channels (${g.channels})</button>`;
+    h+=`<tr class="grp"><td title="${esc(g.path)}">${esc(g.folder)}</td>
+      <td class="muted">${g.count}</td>
+      <td><select onchange="GROUPS[${i}].role=this.value;renderGroups()">
+        <option value="camera" ${g.role=='camera'?'selected':''}>camera</option>
+        <option value="reference" ${g.role=='reference'?'selected':''}>reference</option></select></td>
+      <td>${g.role=='reference'?'<span class="faint">—</span>':syncByCell(i,g)}</td>
+      <td><input style="width:56px" type="number" min="1" value="${g.track}"
+        onchange="GROUPS[${i}].track=+this.value"></td>
+      <td><input style="width:140px" type="text" value="${esc(g.track_name)}"
+        title="Name of the track in Resolve" onchange="GROUPS[${i}].track_name=this.value"></td>
+      <td>${audio}</td>
+      <td><label class="row" style="gap:8px"><input type="checkbox" ${g.enabled?'checked':''}
+        onchange="GROUPS[${i}].enabled=this.checked">
+        <button class="mini ghost" onclick="toggleMeta(${i})">Metadata</button></label></td></tr>
+      <tr><td colspan="8" style="padding:0;border:0"><div id="ch${i}"></div>
+        <div id="meta${i}" style="display:none"><div class="panel">${metaFields(i,g)}</div></div></td></tr>`;
+  });
+  $('#groups').innerHTML=h;
+}
+function syncByCell(i,g){
+  if(g.sync_mode===undefined) g.sync_mode='waveform';
+  const others=GROUPS.filter((x,j)=>j!==i && x.role==='camera' && (x.sync_mode||'waveform')!=='timecode');
+  const tcOK=g.has_timecode;
+  const sel=`<select onchange="GROUPS[${i}].sync_mode=this.value;renderGroups()" ${tcOK?'':'disabled'}>
+      <option value="waveform" ${g.sync_mode!=='timecode'?'selected':''}>its own audio</option>
+      <option value="timecode" ${g.sync_mode==='timecode'?'selected':''}>timecode of…</option></select>`;
+  if(g.sync_mode!=='timecode')
+    return sel + (tcOK?'':'<div class="faint" style="font-size:11px">no timecode in these files</div>');
+  const opts=others.map(o=>`<option value="${esc(o.folder)}"
+      ${g.tc_source===o.folder?'selected':''}>${esc(o.name||o.folder)}</option>`).join('');
+  return sel+`<div style="margin-top:4px"><select style="max-width:150px"
+      onchange="GROUPS[${i}].tc_source=this.value">
+      ${opts||'<option value="">(no waveform camera)</option>'}</select></div>`;
+}
+
+function metaFields(i,g){
+  const f=(k,label,ph='')=>`<label style="display:inline-block;margin:0 14px 10px 0">
+    <span class="faint" style="display:block;font-size:11.5px;margin-bottom:3px">${label}</span>
+    <input type="text" style="width:158px" placeholder="${ph}" value="${esc(g.meta[k]||'')}"
+      onchange="GROUPS[${i}].meta['${k}']=this.value"></label>`;
+  return `<div class="faint" style="font-size:12px;margin-bottom:10px">
+      Applied to every clip in this folder as Resolve metadata.</div>`
+    +f('scene','Scene')+f('shot','Shot')+f('angle','Angle','e.g. Cam A')
+    +f('reel','Reel name')+f('keywords','Keywords','comma, separated')+f('comments','Comments')
+    +`<label style="display:inline-block;margin:0 14px 10px 0">
+      <span class="faint" style="display:block;font-size:11.5px;margin-bottom:3px">Clip colour</span>
+      <select onchange="GROUPS[${i}].meta['color']=this.value">
+      ${COLORS.map(c=>`<option ${g.meta.color==c?'selected':''}>${esc(c)}</option>`).join('')}
+      </select></label>`;
+}
+function toggleMeta(i){const d=$('#meta'+i);d.style.display=d.style.display=='none'?'block':'none'}
+
+async function loadChannels(i){
+  const box=$('#ch'+i);
+  box.innerHTML='<div class="panel muted">Listening to the audio channels…</div>';
+  const d=await api('/api/channels',{path:GROUPS[i].sample,seconds:PREVIEW_SECS});
+  if(d.error){box.innerHTML='<div class="panel err">'+esc(d.error)+'</div>';return}
+  let h=`<div class="panel"><div class="faint" style="font-size:12px;margin-bottom:8px">
+     Sampled from ${esc(d.file)} — click a waveform to hear that moment.</div>`;
+  d.channels.forEach(c=>{
+    const tags=(c.silent?'<span class="tag warnt">very quiet</span> ':'')
+      +(c.duplicate_of!==null?`<span class="tag">same as ch${c.duplicate_of+1}</span>`:'');
+    h+=`<div class="chrow">
+      <label style="width:118px;display:flex;align-items:center;gap:7px">
+        <input type="checkbox" ${GROUPS[i].sync_channels.includes(c.index)?'checked':''}
+          onchange="setch(${i},${c.index},this.checked)">
+        <span>ch${c.index+1}</span>
+        <span class="faint" style="font-size:11.5px">${c.level_db===null?'':c.level_db+' dB'}</span></label>
+      <canvas class="spark" id="sp${i}_${c.index}" width="840" height="60"
+        title="Click to hear this moment" onclick="sparkClick(event,${i},${c.index})"></canvas>
+      <button class="mini" onclick="playPreview(${i},${c.index},0)">${ICON.play}</button>
+      ${tags}</div>`;
+  });
+  h+=`<button class="mini" style="margin-top:6px"
+      onclick='useSuggested(${i},${JSON.stringify(d.suggested)})'>
+      Use suggested (${d.suggested.map(x=>'ch'+(x+1)).join(', ')})</button></div>`;
+  box.innerHTML=h;
+  d.channels.forEach(c=>drawSpark('sp'+i+'_'+c.index,c.wave));
+}
+function drawSpark(id,w){
+  const el=document.getElementById(id); if(!el||!w.length)return;
+  const x=el.getContext('2d'),W=el.width,H=el.height;
+  x.clearRect(0,0,W,H); x.fillStyle='#4f8cff';
+  w.forEach((v,i)=>{const h=Math.max(1,v*H*.92); x.fillRect(W*i/w.length,(H-h)/2,Math.max(1,W/w.length-.6),h)});
+}
+function sparkClick(ev,i,ch){
+  const r=ev.target.getBoundingClientRect();
+  playPreview(i,ch,Math.max(0,(ev.clientX-r.left)/r.width*PREVIEW_SECS-1));
+}
+function setch(i,c,on){const s=new Set(GROUPS[i].sync_channels);on?s.add(c):s.delete(c);
+  GROUPS[i].sync_channels=[...s].sort((a,b)=>a-b)}
+function useSuggested(i,s){GROUPS[i].sync_channels=s;loadChannels(i);toast('Using suggested channels')}
+function playPreview(i,stream,start){
+  const g=GROUPS[i];
+  $('#player').src=`/api/preview?path=${encodeURIComponent(g.sample)}&stream=${stream}`
+    +`&start=${start.toFixed(1)}&dur=12`;
+  $('#playlbl').textContent=`${g.folder} · ch${stream+1} · from ${start.toFixed(1)}s`;
+  $('#playerbox').style.display=''; $('#player').play().catch(()=>{});
+}
+
+/* ---------- step 3: sync + review ---------- */
+async function runSync(){
+  $('#syncbtn').disabled=true; $('#prog').style.display='';
+  await api('/api/sync',{roots:ROOTS,groups:GROUPS});
+  const t=setInterval(async()=>{
+    const p=await api('/api/progress');
+    $('#prog').value=p.total?100*p.done/p.total:0;
+    $('#progmsg').textContent=p.error?'':`${p.done} of ${p.total} clips  ${p.label||''}`;
+    if(p.error){clearInterval(t);$('#progmsg').innerHTML='<span class="err">'+esc(p.error)+'</span>';
+      $('#syncbtn').disabled=false;toast(esc(p.error),true);return}
+    if(!p.running){clearInterval(t);$('#syncbtn').disabled=false;loadResults()}
+  },700);
+}
+async function loadResults(){
+  RESULTS=await api('/api/results'); if(!RESULTS.groups)return;
+  renderStats(); renderLanes(); enable('#s3',true); enable('#s4',true); setStep(3);
+  toast('Sync complete'); $('#s3').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function renderStats(){
+  const c={locked:0,approx:0,fallback:0,manual:0,timecode:0};
+  RESULTS.groups.forEach(g=>g.clips.forEach(x=>c[x.status]=(c[x.status]||0)+1));
+  const tot=Object.values(c).reduce((a,b)=>a+b,0);
+  const off=RESULTS.groups.map(g=>`${esc(g.track_name||g.group)}: ${g.device_offset_s>0?'+':''}${g.device_offset_s}s`).join(' · ');
+  // warn if a timecode-linked camera was locked to a source whose TC drifts
+  const tcg=RESULTS.groups.filter(g=>g.sync_mode==='timecode');
+  let tcNote='';
+  tcg.forEach(g=>{
+    const bad=g.tc_spread_s>1;
+    tcNote+=`<div class="panel" style="margin-top:10px;${bad?'border-color:var(--warn)':''}">
+      <b style="font-size:13px">${esc(g.track_name||g.group)} — placed from timecode</b>
+      <div class="muted" style="font-size:12.5px;margin-top:4px">
+        Locked to <b>${esc(g.tc_source)}</b> · offset ${g.tc_delta_s}s ·
+        learned from ${g.tc_clips_used} clips · agreement ±${g.tc_spread_s}s</div>
+      ${bad?`<div style="color:var(--warn);font-size:12.5px;margin-top:6px">
+        Those clips don't agree closely, which usually means the two cameras were
+        never jammed to the same timecode. Check a few clips in the sync editor
+        before trusting this.</div>`:
+        `<div class="good" style="font-size:12.5px;margin-top:6px">
+        Consistent to within ${g.tc_spread_s}s — the cameras look properly jammed.</div>`}</div>`;
+  });
+  $('#stats').innerHTML=`
+    <div class="stat"><div class="n">${tot}</div><div class="l">clips placed</div></div>
+    <div class="stat"><div class="n" style="color:var(--ok)">${c.locked||0}</div><div class="l">locked exactly</div></div>
+    <div class="stat"><div class="n" style="color:var(--warn)">${c.approx||0}</div><div class="l">close (±0.5s)</div></div>
+    <div class="stat"><div class="n" style="color:var(--bad)">${c.fallback||0}</div><div class="l">need a look</div></div>
+    ${c.timecode?`<div class="stat"><div class="n" style="color:#7ea6d8">${c.timecode}</div>
+      <div class="l">from timecode</div></div>`:''}
+    <div class="stat" style="grid-column:span 2"><div class="l" style="margin:0 0 4px">clock offset found</div>
+      <div style="font-size:13px">${off||'—'}</div></div>`+tcNote;
+}
+function renderLanes(){
+  const items=[];
+  RESULTS.groups.forEach(g=>g.clips.forEach(c=>items.push(
+    {lane:'V'+g.track+'  '+(g.track_name||g.group),pos:c.position_s,dur:c.dur,st:c.status,c:c})));
+  RESULTS.references.forEach(r=>items.push(
+    {lane:'A'+r.track+'  '+(r.track_name||r.group),pos:r.start_s,dur:r.dur,st:'reference',c:r}));
+  const t0=Math.min(...items.map(i=>i.pos)), t1=Math.max(...items.map(i=>i.pos+i.dur));
+  const lanes={}; items.forEach(i=>(lanes[i.lane]=lanes[i.lane]||[]).push(i));
+  let h=`<div class="faint" style="font-size:12px;margin-bottom:8px">${hms(t0)} → ${hms(t1)}</div>`;
+  Object.keys(lanes).sort().forEach(name=>{
+    h+=`<div class="lanerow"><span class="lanelabel" title="${esc(name)}">${esc(name)}</span><div class="lane">`;
+    lanes[name].forEach(i=>{
+      const l=100*(i.pos-t0)/(t1-t0), w=Math.max(0.15,100*i.dur/(t1-t0));
+      h+=`<div class="clip ${i.st}" style="left:${l}%;width:${w}%" tabindex="0"
+           title="${esc(i.c.name||'')} · ${hms(i.pos)} · ${i.st}"
+           onclick='sel(${JSON.stringify(JSON.stringify(i.c))},"${i.st}",this)'></div>`;
+    });
+    h+='</div></div>';
+  });
+  $('#lanes').innerHTML=h;
+}
+function sel(js,st,el){
+  document.querySelectorAll('.clip.sel').forEach(e=>e.classList.remove('sel'));
+  if(el)el.classList.add('sel');
+  const c=JSON.parse(js); SEL=c;
+  if(st=='reference'){$('#detail').style.display='none';return}
+  $('#detail').style.display=''; $('#dname').textContent=c.name;
+  const badge={locked:['var(--ok)','locked to the sample'],approx:['var(--warn)','close — within ±0.5s'],
+    fallback:['var(--bad)','no confident match'],manual:['var(--man)','adjusted by you']}[c.status]||['var(--muted)',c.status];
+  $('#dkv').innerHTML=`<div>Status</div><div style="color:${badge[0]}">${badge[1]}</div>
+    <div>Match strength</div><div>${c.confidence}</div>
+    <div>Matched against</div><div>${esc(c.matched_ref||'—')}</div>
+    <div>Sits at</div><div id="posv">${hms(c.position_s)}  (${c.position_s}s)</div>
+    <div>Camera clock was off by</div><div>${c.device_offset_s}s</div>`;
+  drawWave(c);
+}
+async function drawWave(c){
+  const el=$('#wave'),ctx=el.getContext('2d'),W=el.width,H=el.height;
+  ctx.clearRect(0,0,W,H); if(!c.matched_ref)return;
+  const ref=RESULTS.references.find(r=>r.name===c.matched_ref); if(!ref)return;
+  const d=await api(`/api/inspect?clip=${encodeURIComponent(c.path)}&ref=${encodeURIComponent(ref.path)}`
+    +`&pos=${c.position_s}&refstart=${ref.start_s}&stream=0`);
+  if(d.error)return;
+  const draw=(a,col,y0,h)=>{ctx.strokeStyle=col;ctx.lineWidth=1.2;ctx.beginPath();
+    a.forEach((v,i)=>{const x=W*i/a.length,y=y0+h/2-v*h/2;i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke()};
+  draw(d.cam,'#4f8cff',0,H/2); draw(d.ref,'#8b919c',H/2,H/2);
+}
+async function nudge(dt){
+  if(!SEL)return;
+  const p=+(SEL.position_s+dt).toFixed(3);
+  const r=await api('/api/nudge',{path:SEL.path,position_s:p});
+  if(r.ok){SEL=r.clip;
+    RESULTS.groups.forEach(g=>g.clips.forEach((c,i)=>{if(c.path===r.clip.path)g.clips[i]=r.clip}));
+    $('#posv').textContent=hms(p)+'  ('+p+'s)';
+    renderStats(); renderLanes(); drawWave(SEL); toast('Moved to '+hms(p));}
+}
+
+/* ---------- step 4 ---------- */
+async function doExport(){
+  $('#expmsg').textContent='writing…';
+  const r=await api('/api/export',{sequence_name:$('#seqname').value.trim(),
+                                   fps:+$('#seqfps').value});
+  if(r.error){ $('#expmsg').innerHTML='<span class="err">'+esc(r.error)+'</span>'; return }
+  const files=(r.written||[]).map(p=>p.split(/[\\/]/).pop());
+  $('#expmsg').innerHTML=`<span class="good">Wrote ${r.rows} clips</span> `
+    +`<span class="faint">→ ${files.map(esc).join(' · ')}</span>`
+    +(r.xml_error?`<br><span class="err">XML: ${esc(r.xml_error)}</span>`:'');
+  if(r.xml) $('#xmlname').textContent=r.xml.split(/[\\/]/).pop();
+  $('#exphow').style.display='';
+  setStep(4);
+  toast(r.xml?'Exported — import the XML into Premiere or Resolve':'Exported');
+}
+
+/* ---------- ffmpeg health ---------- */
+async function checkHealth(){
+  let h; try{ h=await api('/api/health') }catch(e){ return }
+  const chip=$('#ffchip');
+  const old=document.getElementById('ffbanner'); if(old) old.remove();
+  if(h && h.ok){ chip.className='chip good'; chip.textContent='ffmpeg ready'; return }
+  chip.className='chip bad'; chip.textContent='ffmpeg missing';
+  const b=document.createElement('section');
+  b.id='ffbanner'; b.style.borderColor='var(--bad)';
+  b.innerHTML=`<div class="shead"><h2 style="color:var(--bad)">ffmpeg isn't installed</h2></div>
+    <p class="sub">This tool uses ffmpeg to read your media, and can't scan anything without it.</p>
+    <div class="row">
+      <button onclick="ffDiagnose()">What's wrong?</button>
+      <button class="primary" onclick="ffInstall()">Install it for me</button>
+      <button class="ghost" onclick="ffRescan()">Check again</button>
+    </div>
+    <div id="ffout" style="margin-top:12px;font-size:13px"></div>
+    <pre id="fflog" style="display:none;max-height:230px;margin-top:10px"></pre>`;
+  document.querySelector('main').prepend(b);
+}
+async function ffDiagnose(){
+  const o=$('#ffout'); o.textContent='checking…';
+  const d=await api('/api/diagnose');
+  const yn=v=>v?`<span class="good">${esc(v)}</span>`:'<span class="err">not found</span>';
+  o.innerHTML=`<b>${esc(d.cause)}</b><div class="kv" style="margin-top:10px">
+      <div>System</div><div>${esc(d.os)} · Python ${esc(d.python)}</div>
+      <div>ffmpeg on PATH</div><div>${yn(d.on_path.ffmpeg)}</div>
+      <div>Found elsewhere</div><div>${esc(d.package_manager_copies.ffmpeg[0]||'—')}</div>
+      <div>winget</div><div>${yn(d.installers.winget)}</div>
+      <div>choco</div><div>${yn(d.installers.choco)}</div>
+      <div>Folders checked</div><div class="faint">${d.searched.map(s=>
+        (s.exists?'✓ ':'✗ ')+esc(s.dir)).join('<br>')}</div></div>
+    ${d.fix==='manual'?'<p style="color:var(--warn)">No package manager found. Download a build from gyan.dev, unzip to <code>C:\\ffmpeg</code>, then press Check again.</p>':'<p class="muted">Press <b>Install it for me</b> to use '+esc(d.fix)+'.</p>'}`;
+}
+async function ffInstall(){
+  const o=$('#ffout'), lg=$('#fflog');
+  o.textContent='starting the installer…'; lg.style.display=''; lg.textContent='';
+  const r=await api('/api/install_ffmpeg',{});
+  if(r.error){ o.innerHTML='<span class="err">'+esc(r.error)+'</span>'; return }
+  if(r.rescanned) return ffRescan();
+  o.textContent=`installing with ${r.method} — this can take a minute…`;
+  const t=setInterval(async()=>{
+    const p=await api('/api/install_progress');
+    lg.textContent=p.log||''; lg.scrollTop=lg.scrollHeight;
+    if(!p.running){ clearInterval(t);
+      if(p.ok&&p.status.ok){ o.innerHTML='<span class="good">Installed — '+esc(p.status.version||p.status.ffmpeg)+'</span>';
+        toast('ffmpeg installed'); setTimeout(checkHealth,600); }
+      else o.innerHTML='<span class="err">Didn\'t finish. If it says access denied, run the tool as Administrator. If it installed but still isn\'t found, restart the tool.</span>';
+    }
+  },900);
+}
+async function ffRescan(){
+  const o=$('#ffout'); o.textContent='checking…';
+  const s=await api('/api/rescan',{});
+  if(s.ok){ o.innerHTML='<span class="good">Found: '+esc(s.version||s.ffmpeg)+'</span>'; setTimeout(checkHealth,500) }
+  else o.innerHTML='<span class="err">Still not found</span>';
+}
+
+/* ---------- full-screen sync editor ---------- */
+const ED={list:[],i:0,clip:null,ref:null,clipBuf:null,refBuf:null,delta:0,view:0,pad:4,win:3,ctx:null,srcs:[]};
+function actx(){ if(!ED.ctx) ED.ctx=new (window.AudioContext||window.webkitAudioContext)(); return ED.ctx }
+function allClips(){
+  const o=[]; RESULTS.groups.forEach(g=>g.clips.forEach(c=>
+    o.push(Object.assign({},c,{_gname:g.track_name||g.group})))); return o;
+}
+function openEditor(){
+  if(!RESULTS||!RESULTS.groups){ toast('Run a sync first',true); return }
+  $('#editor').classList.add('on'); ED.i=0; edBuildList();
+}
+function closeEditor(){ edStop(); $('#editor').classList.remove('on'); renderStats(); renderLanes() }
+function edBuildList(){
+  const f=$('#edfilter').value;
+  ED.list=allClips().filter(c=> f==='all'?true : f==='attention'?c.status!=='locked' : c.status===f);
+  if(!ED.list.length){
+    $('#edlist').innerHTML='<div class="empty" style="border:0;margin:18px">Nothing here — try another filter.</div>';
+    $('#edhead').innerHTML=''; $('#edpos').textContent=''; return }
+  ED.i=Math.min(ED.i,ED.list.length-1);
+  $('#edlist').innerHTML=ED.list.map((c,i)=>
+    `<button class="${i===ED.i?'cur':''}" onclick="edGo(${i})">
+      <span class="dot ${c.status}"></span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;text-align:left">${esc(c.name)}</span>
+      <span class="faint" style="font-size:11px">${c.confidence}</span></button>`).join('');
+  edGo(ED.i);
+}
+function edGo(i){
+  edStop(); ED.i=i; ED.delta=0; ED.view=0;
+  document.querySelectorAll('.edlist button').forEach((b,j)=>b.classList.toggle('cur',j===i));
+  $('#edpos').textContent=`${i+1} of ${ED.list.length}`;
+  const c=ED.list[i]; ED.clip=c;
+  ED.ref=RESULTS.references.find(r=>r.name===c.matched_ref)||null;
+  $('#edrefname').textContent=ED.ref?ED.ref.name:'no reference matched';
+  const st={locked:['var(--ok)','locked'],approx:['var(--warn)','close (±0.5s)'],
+    fallback:['var(--bad)','no confident match'],manual:['var(--man)','adjusted']}[c.status]||['var(--muted)',c.status];
+  $('#edhead').innerHTML=`<h3 style="font-size:15px">${esc(c.name)}</h3>
+    <div class="row" style="gap:14px;font-size:12.5px;margin-top:4px">
+      <span style="color:${st[0]}">● ${st[1]}</span><span class="muted">match ${c.confidence}</span>
+      <span class="muted">${esc(c._gname)}</span><span class="muted">at ${hms(c.position_s)}</span>
+      <span class="muted">${(+c.dur).toFixed(1)}s long</span></div>`;
+  $('#edscrub').value=0; edLoad();
+}
+function edStep(d){ if(ED.list.length) edGo((ED.i+d+ED.list.length)%ED.list.length) }
+function edScrub(){ const c=ED.clip; if(!c)return;
+  ED.view=(+$('#edscrub').value/100)*Math.max(0,c.dur-(+$('#edzoom').value)); edLoad() }
+async function fetchBuf(path,stream,start,dur){
+  try{
+    const r=await fetch(`/api/preview?path=${encodeURIComponent(path)}&stream=${stream}`
+      +`&start=${Math.max(0,start).toFixed(2)}&dur=${dur.toFixed(2)}`);
+    if(!r.ok) return null;
+    return await actx().decodeAudioData(await r.arrayBuffer());
+  }catch(e){ return null }
+}
+async function edLoad(){
+  const c=ED.clip; if(!c)return;
+  ED.win=+$('#edzoom').value;
+  $('#edtime').textContent=ED.view.toFixed(1)+'s';
+  ED.clipBuf=null; ED.refBuf=null; edDraw();
+  ED.clipBuf=await fetchBuf(c.path,0,ED.view,ED.win);
+  if(ED.ref){
+    ED.refBuf=await fetchBuf(ED.ref.path,0,
+      (c.position_s-ED.ref.start_s)+ED.view-ED.pad, ED.win+2*ED.pad);
+  }
+  edDraw();
+}
+function drawBuf(cv,buf,startSec,win,color){
+  const x=cv.getContext('2d'),W=cv.width,H=cv.height;
+  x.clearRect(0,0,W,H);
+  x.strokeStyle='rgba(255,255,255,.07)';x.beginPath();x.moveTo(0,H/2);x.lineTo(W,H/2);x.stroke();
+  if(!buf){ x.fillStyle='#5b6472';x.font='13px system-ui';x.fillText('loading…',12,H/2-8); return }
+  const sr=buf.sampleRate,d=buf.getChannelData(0); x.fillStyle=color;
+  for(let px=0;px<W;px++){
+    const a=Math.floor((startSec+win*px/W)*sr), b=Math.floor((startSec+win*(px+1)/W)*sr);
+    let mn=0,mx=0,any=false;
+    for(let i=Math.max(0,a);i<Math.min(d.length,b);i++){const v=d[i];if(v<mn)mn=v;if(v>mx)mx=v;any=true}
+    if(!any)continue;
+    const y1=H/2-mx*H*.46,y2=H/2-mn*H*.46;
+    x.fillRect(px,y1,1,Math.max(1,y2-y1));
+  }
+}
+function edDraw(){
+  drawBuf($('#edclip'),ED.clipBuf,0,ED.win,'#4f8cff');
+  drawBuf($('#edref'),ED.refBuf,ED.pad+ED.delta,ED.win,'#9aa1ad');
+  $('#edoff').textContent=(ED.delta>=0?'+':'')+ED.delta.toFixed(3)+'s';
+  $('#edframes').textContent=Math.round(ED.delta*25)+' frames @ 25fps';
+}
+function edNudge(dt){ ED.delta=+(ED.delta+dt).toFixed(4); edDraw() }
+function edReset(){ ED.delta=0; edDraw() }
+async function edApply(){
+  const c=ED.clip; if(!c)return;
+  const p=+(c.position_s+ED.delta).toFixed(3);
+  const r=await api('/api/nudge',{path:c.path,position_s:p});
+  if(r.ok){
+    RESULTS.groups.forEach(g=>g.clips.forEach((x,i)=>{if(x.path===r.clip.path)g.clips[i]=r.clip}));
+    Object.assign(c,r.clip); ED.delta=0; edDraw(); edBuildList();
+    toast('Saved — now at '+hms(p));
+  }
+}
+(function(){ let drag=false,x0=0,d0=0;
+  const box=()=>document.getElementById('edclipbox');
+  document.addEventListener('mousedown',e=>{
+    const b=box(); if(!b||!$('#editor').classList.contains('on')||!b.contains(e.target))return;
+    drag=true;x0=e.clientX;d0=ED.delta;e.preventDefault();});
+  document.addEventListener('mousemove',e=>{ if(!drag)return;
+    ED.delta=+(d0+((e.clientX-x0)/box().getBoundingClientRect().width)*ED.win).toFixed(4); edDraw();});
+  document.addEventListener('mouseup',()=>{drag=false});
+})();
+function edStop(){ ED.srcs.forEach(s=>{try{s.stop()}catch(e){}}); ED.srcs=[] }
+function edPlay(mode){
+  edStop(); const ac=actx(); if(ac.state==='suspended')ac.resume();
+  const t=ac.currentTime+0.07;
+  const add=(buf,off,g)=>{ if(!buf)return;
+    const s=ac.createBufferSource(); s.buffer=buf;
+    const gn=ac.createGain(); gn.gain.value=g; s.connect(gn); gn.connect(ac.destination);
+    s.start(t,Math.max(0,off),ED.win); ED.srcs.push(s); };
+  if(mode!=='ref') add(ED.clipBuf,0,mode==='both'?0.7:1);
+  if(mode!=='clip') add(ED.refBuf,ED.pad+ED.delta,mode==='both'?0.7:1);
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){ closeBrowser(); closeSub(); if($('#editor').classList.contains('on'))closeEditor(); return }
+  if(!$('#editor').classList.contains('on'))return;
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT')return;
+  if(e.key==='ArrowLeft'){ edNudge(e.shiftKey?-0.1:-0.04); e.preventDefault() }
+  if(e.key==='ArrowRight'){ edNudge(e.shiftKey?0.1:0.04); e.preventDefault() }
+  if(e.code==='Space'){ edPlay('both'); e.preventDefault() }
+});
+if(!FILE_MODE){ renderFolders(); checkHealth() }
+</script>
+</html>
