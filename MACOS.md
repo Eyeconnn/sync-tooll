@@ -71,6 +71,14 @@ Press **What's wrong?** and the app shows the Homebrew install command with a
 again**. (Homebrew asks for your password — that's normal and it's the official
 installer from brew.sh.)
 
+**"Python quit unexpectedly" when I press Add folder**
+Fixed — update `server.py`. macOS requires GUI windows to be created on a
+program's main thread, but the folder chooser was being opened from one of the
+web server's worker threads, which aborts the whole process. The chooser now runs
+through AppleScript on macOS (and in a separate process elsewhere), so it can
+never take the app down. Cancelling the dialog is also handled properly instead
+of being treated as a failure.
+
 **My footage is on an external drive and I can't get to it**
 Press **Browse here** and the top of the dialog lists your mounted drives by name
 (macOS mounts them under `/Volumes`). Click the drive, then drill down. You can

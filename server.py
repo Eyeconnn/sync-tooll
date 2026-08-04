@@ -291,25 +291,43 @@ def native_pick_folder():
     if sys.platform == "darwin":
         script = ('set f to choose folder with prompt "Choose a media folder"\n'
                   'return POSIX path of f')
-        r = subprocess.run(["osascript", "-e", script],
-                           capture_output=True, text=True)
+        try:
+            r = subprocess.run(["osascript", "-e", script],
+                               capture_output=True, text=True, timeout=300)
+        except Exception as e:
+            raise RuntimeError(f"Could not open the macOS folder chooser: {e}")
         p = (r.stdout or "").strip()
         if p:
             return p.rstrip("/") or "/"
-        if "User canceled" in (r.stderr or ""):
-            return None
-        # fall through to tkinter if osascript was unavailable
+        err = (r.stderr or "")
+        if "User canceled" in err or "-128" in err:
+            return None                      # user pressed Cancel - not an error
+        raise RuntimeError(err.strip() or "The macOS folder chooser returned nothing.")
 
-    import tkinter as tk
-    from tkinter import filedialog
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
+    # Windows / Linux: run Tk in its OWN PROCESS.
+    # A GUI toolkit must own the main thread; this handler runs on one of the
+    # web server's worker threads, so calling Tk here would abort the whole
+    # process ("Python quit unexpectedly").
+    helper = (
+        "import tkinter as tk\n"
+        "from tkinter import filedialog\n"
+        "r = tk.Tk(); r.withdraw(); r.attributes('-topmost', True)\n"
+        "p = filedialog.askdirectory(title='Choose a media folder')\n"
+        "r.destroy()\n"
+        "print(p or '')\n"
+    )
     try:
-        p = filedialog.askdirectory(title="Choose a media folder")
-    finally:
-        root.destroy()
-    return p or None
+        r = subprocess.run([sys.executable, "-c", helper],
+                           capture_output=True, text=True, timeout=300)
+    except Exception as e:
+        raise RuntimeError(f"Could not open the folder chooser: {e}")
+    p = (r.stdout or "").strip()
+    if p:
+        return p
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or "").strip().splitlines()[-1]
+                           if (r.stderr or "").strip() else "Folder chooser failed.")
+    return None
 
 
 def run_sync_job(cfg):
@@ -566,10 +584,10 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/pickfolder":
                 try:
                     p = native_pick_folder()
-                    return self._send({"path": p})
+                    return self._send({"path": p, "cancelled": p is None})
                 except Exception as e:
-                    return self._send({"error": f"No native dialog available ({e}). "
-                                                "Use Browse instead."}, 400)
+                    return self._send({"error": f"The system folder chooser could not "
+                                                f"open ({e}). Use 'Browse here' instead."}, 400)
             if u.path == "/api/channels":
                 path = data.get("path")
                 if not path or not os.path.isfile(path):

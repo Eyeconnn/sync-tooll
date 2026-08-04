@@ -503,8 +503,13 @@ function renderFolders(){
 function addRoot(p){ if(p && !ROOTS.includes(p)){ROOTS.push(p);renderFolders();return true} return false }
 function addManual(){ const v=$('#manual').value.trim(); $('#manual').value=''; if(v)chooseFrom(v) }
 async function pickNative(){
-  const r=await api('/api/pickfolder',{});
-  if(r.error){ toast(esc(r.error),true); openBrowser(); } else chooseFrom(r.path);
+  let r;
+  try{ r=await api('/api/pickfolder',{}); }
+  catch(e){ toast('The folder chooser stopped responding — use Browse here',true);
+            openBrowser(); return; }
+  if(r.error){ toast(esc(r.error),true); openBrowser(); return }
+  if(r.cancelled || !r.path) return;          // user pressed Cancel
+  chooseFrom(r.path);
 }
 
 /* After picking a directory, offer its media sub-folders to tick. */
