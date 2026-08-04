@@ -463,6 +463,7 @@ def export_files(outdir):
                              file=os.path.basename(c["path"]), path=c["path"],
                              position_s=c["position_s"], dur_s=round(c["dur"], 3),
                              fps=c["fps"] or "", status=c["status"],
+                             width=c.get("width") or "", height=c.get("height") or "",
                              confidence=c["confidence"], matched_ref=c["matched_ref"] or "",
                              **meta_cols(g)))
     for r in res["references"]:
@@ -475,7 +476,7 @@ def export_files(outdir):
     import csv
     csv_path = os.path.join(outdir, "sync_placement.csv")
     cols = ["kind", "track", "group", "track_name", "file", "path", "position_s", "dur_s",
-            "fps", "status", "confidence", "matched_ref"] + META_KEYS
+            "fps", "width", "height", "status", "confidence", "matched_ref"] + META_KEYS
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=cols)
         w.writeheader()

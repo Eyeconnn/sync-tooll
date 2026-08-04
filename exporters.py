@@ -30,7 +30,7 @@ def _is_ntsc(fps):
 
 
 def build_fcp7_xml(rows, sequence_name="Synced Timeline", fps=25,
-                   start_seconds=None, lead_seconds=3):
+                   start_seconds=None, lead_seconds=3, width=None, height=None):
     """rows: dicts with kind, track, track_name, file, path, position_s, dur_s,
     fps, and optional scene/shot/angle/reel/comments/keywords/color.
 
@@ -48,6 +48,17 @@ def build_fcp7_xml(rows, sequence_name="Synced Timeline", fps=25,
 
     vids = [r for r in rows if r["kind"] == "video"]
     auds = [r for r in rows if r["kind"] == "audio"]
+
+    # Frame size: take it from the footage rather than assuming 1920x1080,
+    # otherwise vertical or 4K material lands in a mis-sized sequence.
+    if not (width and height):
+        for r in vids:
+            w, h = r.get("width"), r.get("height")
+            if w and h:
+                width, height = int(w), int(h)
+                break
+    width = int(width or 1920)
+    height = int(height or 1080)
     ntracks_v = max([int(r["track"]) for r in vids] or [0])
     ntracks_a = max([int(r["track"]) for r in auds] or [0])
 
@@ -69,12 +80,15 @@ def build_fcp7_xml(rows, sequence_name="Synced Timeline", fps=25,
     A('<?xml version="1.0" encoding="UTF-8"?>')
     A('<!DOCTYPE xmeml>')
     A('<xmeml version="4">')
-    A(f'<sequence id="{escape(sequence_name)}">')
+    # The id attribute must be a plain token - spaces here make Premiere abandon
+    # the import without reporting anything.
+    A('<sequence id="sequence-1">')
     A(f'<name>{escape(sequence_name)}</name>')
     A(f'<duration>{total}</duration>')
     A(_rate(tb, ntsc))
     A(f'<timecode>{_rate(tb, ntsc)}<string>{_tc(start_seconds, fps)}</string>'
       f'<frame>{origin}</frame><displayformat>NDF</displayformat></timecode>')
+    A('<in>-1</in><out>-1</out>')
     A('<media>')
 
     emitted = set()
@@ -103,7 +117,7 @@ def build_fcp7_xml(rows, sequence_name="Synced Timeline", fps=25,
                      f'{_rate(ctb, _is_ntsc(clip_fps))}'
                      f'<duration>{max(1,int(round(float(r["dur_s"])*clip_fps)))}</duration>'
                      f'<media>'
-                     f'{"<video><samplecharacteristics>"+_rate(ctb,_is_ntsc(clip_fps))+"</samplecharacteristics></video>" if r["kind"]=="video" else ""}'
+                     f'{"<video><samplecharacteristics>"+_rate(ctb,_is_ntsc(clip_fps))+f"<width>{width}</width><height>{height}</height>"+"</samplecharacteristics></video>" if r["kind"]=="video" else ""}'
                      f'<audio><samplecharacteristics><depth>16</depth>'
                      f'<samplerate>48000</samplerate></samplecharacteristics>'
                      f'<channelcount>1</channelcount></audio>'
@@ -140,30 +154,40 @@ def build_fcp7_xml(rows, sequence_name="Synced Timeline", fps=25,
         s.append('</clipitem>')
         return "".join(s)
 
-    # ---- video tracks ----
+    # ---- video ----
+    # Premiere expects <video> before <audio>, and expects a <format> block in
+    # BOTH. Always emit at least one video track even if it is empty.
     A('<video>')
-    A(f'<format><samplecharacteristics>{_rate(tb, ntsc)}'
-      f'<width>1920</width><height>1080</height></samplecharacteristics></format>')
-    for t in range(1, ntracks_v + 1):
+    A('<format><samplecharacteristics>'
+      f'{_rate(tb, ntsc)}'
+      f'<width>{width}</width><height>{height}</height>'
+      '<anamorphic>FALSE</anamorphic>'
+      '<pixelaspectratio>square</pixelaspectratio>'
+      '<fielddominance>none</fielddominance>'
+      '<colordepth>24</colordepth>'
+      '</samplecharacteristics></format>')
+    for t in range(1, max(1, ntracks_v) + 1):
         A('<track>')
         for i, r in enumerate([x for x in vids if int(x["track"]) == t]):
             A(clipitem(r, f"{t}-{i}", "video"))
         A('<enabled>TRUE</enabled><locked>FALSE</locked>')
-        name = next((x.get("track_name") for x in vids if int(x["track"]) == t), None)
-        if name:
-            A(f'<outputchannelindex>{t}</outputchannelindex>')
         A('</track>')
     A('</video>')
 
-    # ---- audio tracks ----
+    # ---- audio ----
     if ntracks_a:
         A('<audio>')
+        A('<numOutputChannels>2</numOutputChannels>')
+        A('<format><samplecharacteristics>'
+          '<depth>16</depth><samplerate>48000</samplerate>'
+          '</samplecharacteristics></format>')
         for t in range(1, ntracks_a + 1):
-            A('<track>')
+            A('<track currentExplodedTrackIndex="0" totalExplodedTrackCount="1" '
+              'premiereTrackType="Mono">')
             for i, r in enumerate([x for x in auds if int(x["track"]) == t]):
                 A(clipitem(r, f"{t}-{i}", "audio"))
             A('<enabled>TRUE</enabled><locked>FALSE</locked>')
-            A(f'<outputchannelindex>{t}</outputchannelindex>')
+            A(f'<outputchannelindex>{((t - 1) % 2) + 1}</outputchannelindex>')
             A('</track>')
         A('</audio>')
 

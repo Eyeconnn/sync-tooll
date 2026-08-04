@@ -322,6 +322,8 @@ def media_info(path):
         "created": created.isoformat() if created else None,
         "date": created.date().isoformat() if created else None,
         "start_s": start_s,
+        "width": int(vid[0].get("width") or 0) if vid else 0,
+        "height": int(vid[0].get("height") or 0) if vid else 0,
         "n_audio": len(aud),
         "audio_codecs": [s.get("codec_tag_string") or s.get("codec_name") for s in aud],
         "timecode": tags.get("timecode"),
@@ -633,6 +635,7 @@ def sync(clips, refs, streams, window=240, progress=None):
             pos, status, conf = centre, "fallback", (m or {}).get("peak", 0.0)
         results.append({
             "name": c["name"], "path": c["path"], "dur": c["dur"], "fps": c["fps"],
+            "width": c.get("width"), "height": c.get("height"),
             "created_s": c["start_s"], "position_s": round(pos, 3),
             "status": status, "confidence": round(float(conf), 3),
             "matched_ref": (m or {}).get("ref"), "device_offset_s": round(offset, 2),
@@ -773,6 +776,7 @@ def place_by_timecode(clips, delta, spread=None):
         if tc is None:
             out.append({
                 "name": c["name"], "path": c["path"], "dur": c["dur"], "fps": c["fps"],
+            "width": c.get("width"), "height": c.get("height"),
                 "created_s": c.get("start_s"), "position_s": round(c.get("start_s") or 0, 3),
                 "status": "fallback", "confidence": 0.0, "matched_ref": None,
                 "device_offset_s": 0, "note": "no timecode in this file",
@@ -780,6 +784,7 @@ def place_by_timecode(clips, delta, spread=None):
             continue
         out.append({
             "name": c["name"], "path": c["path"], "dur": c["dur"], "fps": c["fps"],
+            "width": c.get("width"), "height": c.get("height"),
             "created_s": c.get("start_s"), "position_s": round(tc + delta, 3),
             "status": "timecode",
             "confidence": round(max(0.0, 1.0 - (spread or 0)), 3) if spread is not None else 1.0,
