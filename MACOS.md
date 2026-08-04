@@ -7,8 +7,8 @@ Copy the `sync-tool` folder to your Mac, then:
 1. **Delete the `SyncTool.app` that came in the folder** (it lost its permissions
    crossing over from Windows — that's what causes *"the application can't be
    opened"*).
-2. **Double-click `SyncTool.app.zip`.** macOS unzips it and produces a working
-   `SyncTool.app` in the same folder.
+2. **Double-click `SyncTool-mac.zip`.** It unpacks a working `SyncTool.app`,
+   plus `Diagnose.command` and `mac-setup.sh`.
 3. **Double-click that `SyncTool.app`.**
 
 That's it. The app sets itself up on first run — Python, numpy in a private
@@ -61,9 +61,20 @@ Click **Install ffmpeg** and it runs Homebrew for you. If you don't have
 Homebrew, the app offers to open <https://brew.sh> — install that first (one
 paste into Terminal), then reopen Sync Tool.
 
-**Something else**
-The app writes `.synctool-launch.log` inside the sync-tool folder. It's a plain
-text file; open it with TextEdit and the error will be at the bottom.
+**Something else — run the diagnostic**
+
+Double-click **`Diagnose.command`**. It checks everything the app needs — folder
+permissions, Python, numpy, ffmpeg, whether port 8765 is busy, whether the engine
+loads — prints the result, and saves a copy to your Desktop as
+**`SyncTool-diagnosis.txt`**. Anything wrong is marked `PROBLEM` with the fix
+next to it.
+
+The app also writes **`SyncTool-log.txt`** next to itself (on your Desktop
+instead, if the folder isn't writable). When something fails, the app now shows
+the actual error and offers a **Show log** button that opens it in TextEdit.
+
+> Earlier versions wrote a hidden `.synctool-launch.log`, which Finder doesn't
+> show. If you're looking for that, it's gone — the log is plainly named now.
 
 ---
 
