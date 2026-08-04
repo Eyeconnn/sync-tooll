@@ -1,55 +1,56 @@
 # Sync Tool on macOS
 
-## Setup — one command, once
+## Getting it running
 
-Copy the `sync-tool` folder to your Mac. Open **Terminal**
-(Spotlight → type "Terminal" → Return), then drag-and-drop:
+Copy the `sync-tool` folder to your Mac, then:
 
-1. Type `bash ` (with a space)
-2. Drag `mac-setup.sh` from the folder into the Terminal window
-3. Press Return
+1. **Delete the `SyncTool.app` that came in the folder** (it lost its permissions
+   crossing over from Windows — that's what causes *"the application can't be
+   opened"*).
+2. **Double-click `SyncTool.app.zip`.** macOS unzips it and produces a working
+   `SyncTool.app` in the same folder.
+3. **Double-click that `SyncTool.app`.**
 
-It looks like this:
+That's it. The app sets itself up on first run — Python, numpy in a private
+environment inside the folder, and ffmpeg — asking permission with ordinary Mac
+dialogs. It then starts the engine, opens your browser at
+<http://localhost:8765>, and shows a small **Sync Tool is running** window.
+Click **Quit** there when you're finished.
+
+> **Why the zip?** A zip file can carry Unix permissions; a Windows folder copy
+> cannot. The `.app` inside the archive already has its "runnable" flag set, so
+> unzipping on the Mac produces a working app with nothing to fix.
+
+### If you'd rather not use the zip
+
+`mac-setup.sh` repairs the plain `SyncTool.app` instead. In **Terminal**, type
+`bash ` (with a space), drag `mac-setup.sh` in from Finder, and press Return:
 
 ```
 bash /Users/you/sync-tool/mac-setup.sh
 ```
 
-The script does everything: makes the app launchable, clears the macOS security
-flag, installs Python's numpy into a private environment inside the folder, and
-installs ffmpeg if Homebrew is present. It prints a tick for each step.
-
-## Then: double-click `SyncTool.app`
-
-That's it, from then on. No Terminal, no commands.
-
-The app checks its own setup, starts the engine, opens your browser at
-<http://localhost:8765>, and shows a small **Sync Tool is running** window.
-Click **Quit** in that window when you're finished.
-
----
-
-## Why one Terminal command is unavoidable
-
-macOS won't let a file copied from Windows or unzipped from a download mark
-itself as runnable — that's a security feature, not something the app can switch
-off from the inside. `mac-setup.sh` is the one thing that flips that bit, and
-`bash …` runs it even though it isn't executable yet. After that everything is
-graphical.
-
-(If you clone with `git` on a Mac instead of copying from Windows, the permission
-usually survives and you can skip straight to double-clicking the app.)
+It restores the permission, clears the macOS quarantine flag, sets up numpy and
+installs ffmpeg if Homebrew is present, printing a tick per step. Afterwards the
+app double-clicks normally.
 
 ---
 
 ## If something goes wrong
 
+**"The application SyncTool.app can't be opened"** (or *"...cannot be opened
+because it is damaged"*)
+The app's runnable permission was stripped — almost always because the folder was
+copied from Windows. Delete that `SyncTool.app`, double-click
+`SyncTool.app.zip`, and use the app it produces. Or run `bash mac-setup.sh`.
+
 **"SyncTool.app cannot be opened because it is from an unidentified developer"**
-Run `mac-setup.sh` — it clears the flag that causes this. If it still appears,
-right-click the app → **Open** → **Open**. Once only.
+This is Gatekeeper, and it's different from the above. Right-click the app →
+**Open** → **Open**. Once only. (`mac-setup.sh` also clears the flag that
+triggers it.)
 
 **Nothing happens when you double-click the app**
-The setup step was skipped. Run the `bash …` command above.
+Use the zip, or run the `bash mac-setup.sh` command above.
 
 **"Sync Tool needs Python 3"**
 Click **Install Python** in the dialog; macOS installs its developer tools
