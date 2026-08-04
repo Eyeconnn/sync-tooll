@@ -507,11 +507,36 @@ async function pickNative(){
 
 /* After picking a directory, offer its media sub-folders to tick. */
 let SUBS=[];
+function alertBlocked(msg){
+  const b=document.createElement('section');
+  b.style.borderColor='var(--warn)';
+  b.innerHTML=`<div class="shead"><h2 style="color:var(--warn)">macOS is blocking that drive</h2></div>
+    <div class="muted" style="font-size:13px;white-space:pre-line">${esc(msg)}</div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" onclick="openPrivacy()">Open Privacy settings</button>
+      <button class="ghost" onclick="this.closest('section').remove()">Dismiss</button>
+    </div>`;
+  const old=document.getElementById('tccbanner'); if(old) old.remove();
+  b.id='tccbanner'; document.querySelector('main').prepend(b);
+  b.scrollIntoView({behavior:'smooth',block:'center'});
+}
+function openPrivacy(){
+  // deep-link straight to the Full Disk Access pane
+  fetch('/api/openprivacy',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:'{}'}).catch(()=>{});
+  toast('Turn on Full Disk Access for Terminal or SyncTool, then reopen the app');
+}
 async function chooseFrom(path){
   if(!path) return;
   toast('Looking for media in '+esc(path.split(/[\\/]/).pop()));
   const d=await api('/api/subfolders',{path});
-  if(d.error){ toast(esc(d.error),true); return }
+  if(d.error){
+    if(d.blocked){
+      $('#scanmsg').innerHTML=`<span class="err">macOS is blocking that drive.</span>`;
+      alertBlocked(d.error);
+    } else toast(esc(d.error),true);
+    return;
+  }
   SUBS=d.folders;
   if(!SUBS.length){ toast('No media found in that folder',true); return }
   if(SUBS.length===1){                       // nothing to choose between
@@ -554,7 +579,16 @@ const jsPath=p=>p.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
 async function browseTo(p){
   const d=await api('/api/browse?path='+encodeURIComponent(p||''));
   CUR=d.path||""; $('#curpath').textContent=CUR||'';
-  $('#browseerr').textContent=d.error||'';
+  $('#browseerr').innerHTML = d.error
+    ? `<div class="panel" style="border-color:var(--warn);margin:8px 0">
+         <b style="color:var(--warn);font-size:13px">${d.blocked?'macOS is blocking this drive':'Problem'}</b>
+         <div class="muted" style="font-size:12.5px;margin-top:6px;white-space:pre-line">${esc(d.error)}</div>
+         ${d.blocked?`<div class="row" style="gap:8px;margin-top:10px">
+           <button class="mini" onclick="openPrivacy()">Open Privacy settings</button>
+           <button class="mini ghost" onclick="browseTo('${jsPath(d.path)}')">Try again</button>
+         </div>`:''}
+       </div>`
+    : '';
   // drives first - that's where footage usually is
   const sc=(d.shortcuts||[]);
   const drives=sc.filter(s=>s.kind==='drive'), rest=sc.filter(s=>s.kind!=='drive');

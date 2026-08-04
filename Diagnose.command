@@ -76,6 +76,29 @@ command -v ffprobe >/dev/null 2>&1 && echo "  ok      $(command -v ffprobe)" || 
 command -v brew >/dev/null 2>&1 && echo "  ok      homebrew at $(command -v brew)" || echo "  note    homebrew not installed (https://brew.sh)"
 echo
 
+echo "-- external drives (/Volumes) --"
+if [ -d /Volumes ]; then
+  for v in /Volumes/*; do
+    [ -d "$v" ] || continue
+    [ "$(readlink -f "$v" 2>/dev/null || echo "$v")" = "/" ] && continue
+    n=$(ls -1 "$v" 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$n" = "0" ]; then
+      echo "  BLOCKED $v  (macOS is withholding access - see below)"
+    else
+      echo "  ok      $v  ($n items)"
+    fi
+  done
+  if ls -1 /Volumes/*/ >/dev/null 2>&1; then
+    echo
+    echo "  If a drive says BLOCKED, grant Full Disk Access:"
+    echo "    System Settings > Privacy & Security > Full Disk Access"
+    echo "    turn on Terminal (and SyncTool if listed), then reopen Sync Tool."
+  fi
+else
+  echo "  no /Volumes on this system"
+fi
+echo
+
 echo "-- port 8765 --"
 if command -v lsof >/dev/null 2>&1 && lsof -ti tcp:8765 >/dev/null 2>&1; then
   echo "  IN USE by pid(s): $(lsof -ti tcp:8765 | tr '\n' ' ')"

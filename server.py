@@ -199,15 +199,60 @@ def _shortcuts():
     return out
 
 
+TCC_HELP = ("macOS is withholding access to this drive.\n\n"
+            "Open System Settings › Privacy & Security › Full Disk Access, "
+            "switch on the app that launched Sync Tool (Terminal, or SyncTool.app), "
+            "then quit and reopen Sync Tool.")
+
+
+def _is_mac_volume(path):
+    """True for /Volumes/<drive> and anything inside it - the only place where an
+    empty listing is meaningful evidence of macOS withholding permission."""
+    return sys.platform == "darwin" and os.path.abspath(path).startswith("/Volumes/")
+
+
+def access_report(path):
+    """Can we really read this folder? macOS returns an EMPTY listing for a
+    TCC-protected volume instead of raising, so 'no error' is not proof.
+
+    An empty listing only implies blocking on a macOS external volume - an empty
+    folder anywhere else is just an empty folder.
+    """
+    info = {"path": path, "exists": os.path.isdir(path), "entries": 0,
+            "readable": False, "blocked": False, "detail": ""}
+    if not info["exists"]:
+        info["detail"] = "not mounted"
+        return info
+    try:
+        names = os.listdir(path)
+        info["entries"] = len(names)
+        info["readable"] = True
+        if len(names) == 0 and _is_mac_volume(path):
+            info["blocked"] = True
+            info["detail"] = "empty listing - permission is being withheld"
+        else:
+            info["detail"] = f"{len(names)} entries"
+    except PermissionError:
+        info["blocked"] = True
+        info["detail"] = "permission denied"
+    except OSError as e:
+        info["detail"] = str(e)
+    return info
+
+
 def list_dirs(path):
     """Server-side folder browser (also the fallback when no native dialog exists)."""
     err = None
+    blocked = False
     if not path:
         path = os.path.expanduser("~")
     path = os.path.abspath(path)
     dirs = []
+    n_entries = 0
     try:
-        for d in sorted(os.listdir(path)):
+        names = sorted(os.listdir(path))
+        n_entries = len(names)
+        for d in names:
             if d.startswith("."):
                 continue
             full = os.path.join(path, d)
@@ -217,16 +262,20 @@ def list_dirs(path):
             except OSError:
                 continue
     except PermissionError:
-        err = ("macOS is blocking access to this folder. Grant permission in "
-               "System Settings › Privacy & Security › Files and Folders "
-               "(or Full Disk Access), then try again.")
+        err, blocked = TCC_HELP, True
     except FileNotFoundError:
         err = "That folder no longer exists - was the drive unplugged?"
     except OSError as e:
         err = str(e)
+
+    # Silent denial: the folder opened fine but came back completely empty.
+    if err is None and n_entries == 0 and _is_mac_volume(path):
+        err, blocked = TCC_HELP, True
+
     parent = os.path.dirname(path.rstrip(os.sep)) or ("/" if os.name != "nt" else "")
     return {"path": path, "parent": (parent if parent != path else None),
-            "dirs": dirs, "shortcuts": _shortcuts(), "error": err}
+            "dirs": dirs, "shortcuts": _shortcuts(), "error": err,
+            "blocked": blocked, "entries": n_entries}
 
 
 def native_pick_folder():
@@ -476,6 +525,11 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         data = json.loads(self.rfile.read(n) or b"{}")
         try:
+            if u.path == "/api/openprivacy":
+                if sys.platform == "darwin":
+                    os.system("open 'x-apple.systempreferences:com.apple.preference."
+                              "security?Privacy_AllFiles' >/dev/null 2>&1 &")
+                return self._send({"opened": sys.platform == "darwin"})
             if u.path == "/api/rescan":
                 return self._send(se.rescan_tools())
             if u.path == "/api/install_ffmpeg":
@@ -505,7 +559,27 @@ class Handler(BaseHTTPRequestHandler):
                 p = data.get("path")
                 if not p or not os.path.isdir(p):
                     return self._send({"error": f"Folder not found: {p}"}, 400)
-                return self._send({"root": os.path.abspath(p), "folders": subfolders(p)})
+                folders = subfolders(p)
+                if not folders:
+                    rep = access_report(p)
+                    if rep["blocked"]:
+                        return self._send({"error": TCC_HELP, "blocked": True}, 400)
+                    return self._send({"error":
+                        "No video or audio files were found in that folder "
+                        "(or any folder inside it).", "folders": []}, 400)
+                return self._send({"root": os.path.abspath(p), "folders": folders})
+            if u.path == "/api/checkaccess":
+                vols = []
+                base = "/Volumes"
+                if os.path.isdir(base):
+                    try:
+                        for n in sorted(os.listdir(base)):
+                            fp = os.path.join(base, n)
+                            if os.path.isdir(fp) and os.path.realpath(fp) != "/":
+                                vols.append(access_report(fp))
+                    except OSError as e:
+                        vols.append({"path": base, "detail": str(e), "blocked": True})
+                return self._send({"volumes": vols, "help": TCC_HELP})
             if u.path == "/api/discover":
                 roots = data.get("roots") or ([data["root"]] if data.get("root") else [])
                 roots = [r for r in roots if r]
