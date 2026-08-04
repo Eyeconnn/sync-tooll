@@ -219,10 +219,12 @@ progress::-webkit-progress-value{background:var(--accent);border-radius:99px}
        They can live on different drives.</p>
     <div id="folders"></div>
     <div class="row" style="margin-top:12px">
-      <button class="primary" onclick="pickNative()">
+      <button class="primary" onclick="pickNative()" title="Uses your operating system's own folder chooser">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
              stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add folder</button>
       <button class="ghost" onclick="openBrowser()">Browse here</button>
+      <span class="faint" style="font-size:12px">External drive? Use <b>Add folder</b> —
+        it opens your system chooser, which also unlocks protected drives.</span>
       <input type="text" id="manual" style="width:300px" placeholder="…or paste a path"
              onkeydown="if(event.key==='Enter')addManual()">
       <button class="ghost" onclick="addManual()">Add</button>
@@ -511,9 +513,25 @@ function alertBlocked(msg){
   const b=document.createElement('section');
   b.style.borderColor='var(--warn)';
   b.innerHTML=`<div class="shead"><h2 style="color:var(--warn)">macOS is blocking that drive</h2></div>
-    <div class="muted" style="font-size:13px;white-space:pre-line">${esc(msg)}</div>
+    <p class="sub" style="margin-bottom:10px">Easiest fix: pick the folder with the
+      macOS chooser. Choosing it yourself in Apple's own panel counts as permission,
+      so the drive opens without changing any settings.</p>
+    <div class="row" style="margin-bottom:14px">
+      <button class="primary" onclick="pickNative()">Choose folder with macOS…</button>
+    </div>
+    <details><summary class="muted" style="cursor:pointer;font-size:12.5px">If that
+      doesn't work — grant access permanently</summary>
+      <div class="muted" style="font-size:12.5px;white-space:pre-line;margin-top:8px">${esc(msg)}</div>
+      <p class="faint" style="font-size:12px;margin-top:8px">
+        Two things people miss: the permission applies to whatever <i>launched</i>
+        Sync Tool, so if you granted Terminal, start it from Terminal
+        (<code>python3 server.py</code>) rather than double-clicking the app —
+        and you must fully quit and reopen it afterwards.</p>
+      <div class="row" style="margin-top:10px">
+        <button onclick="openPrivacy()">Open Privacy settings</button>
+      </div>
+    </details>
     <div class="row" style="margin-top:12px">
-      <button class="primary" onclick="openPrivacy()">Open Privacy settings</button>
       <button class="ghost" onclick="this.closest('section').remove()">Dismiss</button>
     </div>`;
   const old=document.getElementById('tccbanner'); if(old) old.remove();

@@ -7,7 +7,7 @@ Deps: numpy, and ffmpeg/ffprobe on PATH.
 Nothing is uploaded anywhere - this is a localhost server reading your own disk.
 """
 
-import json, os, sys, threading, traceback, webbrowser
+import json, os, subprocess, sys, threading, traceback, webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -279,7 +279,27 @@ def list_dirs(path):
 
 
 def native_pick_folder():
-    """Open the OS folder-picker. Runs on this machine, so it just works."""
+    """Open the OS folder picker.
+
+    On macOS this uses the system panel via AppleScript. That matters for more
+    than looks: picking a folder in Apple's own panel is treated as user intent,
+    so the app is granted access to that folder even when a blanket permission
+    hasn't been given. It is the supported way past a blocked external drive -
+    no security settings need changing. It also avoids depending on tkinter,
+    which many Python builds ship without.
+    """
+    if sys.platform == "darwin":
+        script = ('set f to choose folder with prompt "Choose a media folder"\n'
+                  'return POSIX path of f')
+        r = subprocess.run(["osascript", "-e", script],
+                           capture_output=True, text=True)
+        p = (r.stdout or "").strip()
+        if p:
+            return p.rstrip("/") or "/"
+        if "User canceled" in (r.stderr or ""):
+            return None
+        # fall through to tkinter if osascript was unavailable
+
     import tkinter as tk
     from tkinter import filedialog
     root = tk.Tk()
