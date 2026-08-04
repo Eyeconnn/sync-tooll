@@ -161,23 +161,72 @@ def discover(roots):
     return out
 
 
+def _shortcuts():
+    """Quick jumps for the folder browser - crucially including mounted drives,
+    which is where footage usually lives."""
+    out, home = [], os.path.expanduser("~")
+    if os.name == "nt":
+        import string
+        for d in string.ascii_uppercase:
+            root = f"{d}:\\"
+            if os.path.exists(root):
+                out.append({"label": f"{d}: drive", "path": root, "kind": "drive"})
+    else:
+        # external / removable drives: /Volumes on macOS, /media & /mnt on Linux
+        for base in ("/Volumes", "/media", "/mnt", f"/media/{os.path.basename(home)}",
+                     "/run/media"):
+            if not os.path.isdir(base):
+                continue
+            try:
+                for name in sorted(os.listdir(base)):
+                    p = os.path.join(base, name)
+                    if not os.path.isdir(p) or name.startswith("."):
+                        continue
+                    # skip the boot volume symlink macOS puts in /Volumes
+                    if os.path.realpath(p) == "/":
+                        continue
+                    out.append({"label": name, "path": p, "kind": "drive"})
+            except OSError:
+                pass
+    for label, sub in (("Home", ""), ("Desktop", "Desktop"),
+                       ("Documents", "Documents"), ("Downloads", "Downloads"),
+                       ("Movies", "Movies")):
+        p = os.path.join(home, sub) if sub else home
+        if os.path.isdir(p):
+            out.append({"label": label, "path": p, "kind": "home"})
+    if os.name != "nt":
+        out.append({"label": "Top level (/)", "path": "/", "kind": "root"})
+    return out
+
+
 def list_dirs(path):
-    """Server-side folder browser (fallback when no native dialog is available)."""
+    """Server-side folder browser (also the fallback when no native dialog exists)."""
+    err = None
     if not path:
-        if os.name == "nt":
-            import string
-            drives = [f"{d}:\\" for d in string.ascii_uppercase
-                      if os.path.exists(f"{d}:\\")]
-            return {"path": "", "parent": None, "dirs": drives}
         path = os.path.expanduser("~")
     path = os.path.abspath(path)
+    dirs = []
     try:
-        dirs = sorted([os.path.join(path, d) for d in os.listdir(path)
-                       if os.path.isdir(os.path.join(path, d)) and not d.startswith(".")])
+        for d in sorted(os.listdir(path)):
+            if d.startswith("."):
+                continue
+            full = os.path.join(path, d)
+            try:
+                if os.path.isdir(full):
+                    dirs.append(full)
+            except OSError:
+                continue
     except PermissionError:
-        dirs = []
-    parent = os.path.dirname(path.rstrip(os.sep))
-    return {"path": path, "parent": (parent if parent != path else None), "dirs": dirs}
+        err = ("macOS is blocking access to this folder. Grant permission in "
+               "System Settings › Privacy & Security › Files and Folders "
+               "(or Full Disk Access), then try again.")
+    except FileNotFoundError:
+        err = "That folder no longer exists - was the drive unplugged?"
+    except OSError as e:
+        err = str(e)
+    parent = os.path.dirname(path.rstrip(os.sep)) or ("/" if os.name != "nt" else "")
+    return {"path": path, "parent": (parent if parent != path else None),
+            "dirs": dirs, "shortcuts": _shortcuts(), "error": err}
 
 
 def native_pick_folder():

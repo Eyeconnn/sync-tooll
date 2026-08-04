@@ -57,9 +57,29 @@ Click **Install Python** in the dialog; macOS installs its developer tools
 (a few minutes). Reopen the app afterwards.
 
 **"Sync Tool needs ffmpeg"**
-Click **Install ffmpeg** and it runs Homebrew for you. If you don't have
-Homebrew, the app offers to open <https://brew.sh> — install that first (one
-paste into Terminal), then reopen Sync Tool.
+Click **Install ffmpeg** and it runs Homebrew for you.
+
+**"no package manager found" — but you *do* have Homebrew**
+Fixed. Apps launched from Finder get a cut-down `PATH` that doesn't include
+`/opt/homebrew/bin`, so Homebrew was invisible to the app. It now looks in the
+real locations rather than trusting `PATH`. Make sure you're using the app from
+the current `SyncTool-mac.zip`.
+
+**"no package manager found" — and you genuinely don't have Homebrew**
+Press **What's wrong?** and the app shows the Homebrew install command with a
+**Copy** button. Paste it into Terminal, let it finish, then press **Check
+again**. (Homebrew asks for your password — that's normal and it's the official
+installer from brew.sh.)
+
+**My footage is on an external drive and I can't get to it**
+Press **Browse here** and the top of the dialog lists your mounted drives by name
+(macOS mounts them under `/Volumes`). Click the drive, then drill down. You can
+also paste a path straight into the box — `/Volumes/My Drive/Footage` — and press
+Go, or use **Add folder** for the native macOS dialog.
+
+If the drive is listed but opening it gives a permissions error, macOS is
+withholding access. Grant it in **System Settings › Privacy & Security › Files
+and Folders** (or **Full Disk Access**) for Terminal, then reopen Sync Tool.
 
 **Something else — run the diagnostic**
 

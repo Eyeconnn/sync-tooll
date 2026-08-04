@@ -347,6 +347,13 @@ progress::-webkit-progress-value{background:var(--accent);border-radius:99px}
 <div class="modal" id="browser" role="dialog" aria-modal="true"><div>
   <h2 style="font-size:14px">Choose a folder</h2>
   <div class="muted" id="curpath" style="font-size:12.5px;margin-top:6px;word-break:break-all"></div>
+  <div id="shortcuts" class="row" style="gap:6px;margin-top:10px"></div>
+  <div class="row" style="gap:6px;margin-top:8px">
+    <input type="text" id="gotopath" style="flex:1" placeholder="or type a path, e.g. /Volumes/My Drive"
+           onkeydown="if(event.key==='Enter')browseTo(this.value.trim())">
+    <button class="mini" onclick="browseTo($('#gotopath').value.trim())">Go</button>
+  </div>
+  <div id="browseerr" class="err" style="font-size:12px;margin-top:8px"></div>
   <div class="dirlist" id="dirlist"></div>
   <div class="row">
     <button class="primary" onclick="useCurrent()">Use this folder</button>
@@ -543,13 +550,26 @@ function addSelectedSubs(){
 }
 async function openBrowser(){ $('#browser').style.display='flex'; await browseTo("") }
 function closeBrowser(){ $('#browser').style.display='none' }
+const jsPath=p=>p.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
 async function browseTo(p){
-  const d=await api('/api/browse?path='+encodeURIComponent(p));
-  CUR=d.path||""; $('#curpath').textContent=CUR||'Drives';
-  const item=(label,path)=>`<button onclick="browseTo('${path.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')">${esc(label)}</button>`;
+  const d=await api('/api/browse?path='+encodeURIComponent(p||''));
+  CUR=d.path||""; $('#curpath').textContent=CUR||'';
+  $('#browseerr').textContent=d.error||'';
+  // drives first - that's where footage usually is
+  const sc=(d.shortcuts||[]);
+  const drives=sc.filter(s=>s.kind==='drive'), rest=sc.filter(s=>s.kind!=='drive');
+  $('#shortcuts').innerHTML =
+    (drives.length?`<span class="faint" style="font-size:11.5px">Drives:</span>`
+      +drives.map(s=>`<button class="mini" onclick="browseTo('${jsPath(s.path)}')"
+         title="${esc(s.path)}">${esc(s.label)}</button>`).join(''):'')
+    +`<span class="faint" style="font-size:11.5px;margin-left:6px">Go to:</span>`
+    +rest.map(s=>`<button class="mini ghost" onclick="browseTo('${jsPath(s.path)}')"
+       >${esc(s.label)}</button>`).join('');
+  const item=(label,path)=>`<button onclick="browseTo('${jsPath(path)}')">${esc(label)}</button>`;
   let h = d.parent ? item('↑  up one level',d.parent) : '';
   h += d.dirs.map(x=>item(x.split(/[\\/]/).filter(Boolean).pop()||x,x)).join('');
-  $('#dirlist').innerHTML=h||'<div class="empty" style="border:0">No sub-folders here</div>';
+  $('#dirlist').innerHTML=h||`<div class="empty" style="border:0">${
+    d.error?'Could not read this folder':'No sub-folders here'}</div>`;
 }
 function useCurrent(){ const p=CUR; closeBrowser(); if(p)chooseFrom(p) }
 
@@ -828,7 +848,26 @@ async function ffDiagnose(){
       <div>choco</div><div>${yn(d.installers.choco)}</div>
       <div>Folders checked</div><div class="faint">${d.searched.map(s=>
         (s.exists?'✓ ':'✗ ')+esc(s.dir)).join('<br>')}</div></div>
-    ${d.fix==='manual'?'<p style="color:var(--warn)">No package manager found. Download a build from gyan.dev, unzip to <code>C:\\ffmpeg</code>, then press Check again.</p>':'<p class="muted">Press <b>Install it for me</b> to use '+esc(d.fix)+'.</p>'}`;
+    ${d.fix==='manual'? manualHelp(d)
+      : '<p class="muted">Press <b>Install it for me</b> to use '+esc(d.fix)+'.</p>'}`;
+}
+function manualHelp(d){
+  if(d.command){
+    return `<p style="color:var(--warn);margin-top:10px">${esc(d.hint||'')}</p>
+      <div class="row" style="gap:8px">
+        <code style="flex:1;background:#12151b;border:1px solid var(--line);border-radius:6px;
+          padding:9px 11px;font-size:12px;overflow:auto;white-space:nowrap">${esc(d.command)}</code>
+        <button class="mini" onclick="copyCmd(this,${JSON.stringify(d.command)})">Copy</button>
+      </div>
+      ${d.alt?`<p class="faint" style="font-size:12px;margin-top:8px">${esc(d.alt)}</p>`:''}
+      <p class="faint" style="font-size:12px">When it's done, press <b>Check again</b>.</p>`;
+  }
+  return '<p style="color:var(--warn)">No package manager found. On Windows: download a '
+       + 'build from gyan.dev, unzip to <code>C:\\ffmpeg</code>, then press Check again.</p>';
+}
+function copyCmd(btn,cmd){
+  navigator.clipboard.writeText(cmd).then(()=>{btn.textContent='Copied';
+    setTimeout(()=>btn.textContent='Copy',1500)}).catch(()=>toast('Copy failed',true));
 }
 async function ffInstall(){
   const o=$('#ffout'), lg=$('#fflog');

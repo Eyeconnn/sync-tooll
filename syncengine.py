@@ -56,6 +56,36 @@ _NIX_GUESSES = ["/usr/bin", "/usr/local/bin", "/snap/bin", os.path.expanduser("~
 _GUESSES = ([os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg")]
             + (_WIN_GUESSES if IS_WIN else _MAC_GUESSES if IS_MAC else _NIX_GUESSES))
 
+# A GUI-launched app on macOS inherits a bare PATH (/usr/bin:/bin:/usr/sbin:/sbin),
+# so Homebrew at /opt/homebrew/bin is invisible - to us and to anything we spawn.
+# Put the standard tool directories back before anyone calls which().
+if not IS_WIN:
+    _extra = [d for d in ("/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin",
+                          "/opt/homebrew/sbin", "/usr/local/sbin")
+              if os.path.isdir(d)]
+    _cur = os.environ.get("PATH", "").split(os.pathsep)
+    os.environ["PATH"] = os.pathsep.join(
+        [d for d in _extra if d not in _cur] + _cur)
+
+
+# Package managers live in the same places. Look them up by absolute path too,
+# so "no package manager found" never means "it was just off our PATH".
+_PM_DIRS = ([] if IS_WIN else
+            ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin",
+             "/home/linuxbrew/.linuxbrew/bin", "/usr/bin", "/bin", "/snap/bin"])
+
+
+def find_command(name):
+    """which(), then the usual absolute locations."""
+    p = which(name)
+    if p:
+        return p
+    for d in _PM_DIRS:
+        cand = os.path.join(d, name)
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    return None
+
 
 def _package_manager_dirs(name):
     """Package managers install into versioned folders - glob for them. Needed
@@ -117,10 +147,11 @@ def diagnose():
         "package_manager_copies": {"ffmpeg": _package_manager_dirs("ffmpeg")[:3],
                                    "ffprobe": _package_manager_dirs("ffprobe")[:3]},
         "platform": "windows" if IS_WIN else "mac" if IS_MAC else "linux",
-        "installers": {m: which(m) for m in
+        "installers": {m: find_command(m) for m in
                        (("winget", "choco", "scoop") if IS_WIN
                         else ("brew", "port") if IS_MAC
                         else ("apt-get", "dnf", "snap"))},
+        "path": os.environ.get("PATH", ""),
         "resolved": {"ffmpeg": FFMPEG, "ffprobe": FFPROBE},
     }
     for base in _WIN_GUESSES:
@@ -145,10 +176,16 @@ def diagnose():
             d["cause"] = "ffmpeg is not installed and no package manager was found."
             d["fix"] = "manual"
             if IS_MAC:
-                d["hint"] = ('Install Homebrew from https://brew.sh then run '
-                             '"brew install ffmpeg", or download a static build from '
-                             'https://evermeet.cx/ffmpeg/ and put ffmpeg and ffprobe '
-                             'in /usr/local/bin.')
+                d["hint"] = ("Homebrew isn't installed. Paste this into Terminal to "
+                             "install it, then press Check again:")
+                d["command"] = ('/bin/bash -c "$(curl -fsSL '
+                                'https://raw.githubusercontent.com/Homebrew/install/'
+                                'HEAD/install.sh)"')
+                d["alt"] = ("Or download a static build from https://evermeet.cx/ffmpeg/ "
+                            "and put ffmpeg and ffprobe in /usr/local/bin.")
+            elif not IS_WIN:
+                d["hint"] = "Install ffmpeg with your distribution's package manager:"
+                d["command"] = "sudo apt install ffmpeg"
     return d
 
 
@@ -162,18 +199,20 @@ def install_ffmpeg(method="winget", log=None):
         if log:
             log(s)
     cmds = {
-        "winget": [which("winget") or "winget", "install", "--id", "Gyan.FFmpeg",
+        "winget": [find_command("winget") or "winget", "install", "--id", "Gyan.FFmpeg",
                    "-e", "--source", "winget",
                    "--accept-package-agreements", "--accept-source-agreements"],
-        "choco": [which("choco") or "choco", "install", "ffmpeg", "-y"],
-        "scoop": [which("scoop") or "scoop", "install", "ffmpeg"],
-        "brew": [which("brew") or "brew", "install", "ffmpeg"],
-        "port": [which("port") or "port", "install", "ffmpeg"],
-        "snap": [which("snap") or "snap", "install", "ffmpeg"],
+        "choco": [find_command("choco") or "choco", "install", "ffmpeg", "-y"],
+        "scoop": [find_command("scoop") or "scoop", "install", "ffmpeg"],
+        "brew": [find_command("brew") or "brew", "install", "ffmpeg"],
+        "port": [find_command("port") or "port", "install", "ffmpeg"],
+        "snap": [find_command("snap") or "snap", "install", "ffmpeg"],
+        "apt-get": [find_command("apt-get") or "apt-get", "install", "-y", "ffmpeg"],
+        "dnf": [find_command("dnf") or "dnf", "install", "-y", "ffmpeg"],
     }
     if method not in cmds:
         return False, f"Unknown install method: {method}"
-    if not which(method):
+    if not find_command(method):
         return False, f"{method} is not available on this machine."
     say("$ " + " ".join(cmds[method]) + "\n")
     try:
