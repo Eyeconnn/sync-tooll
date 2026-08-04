@@ -1,2 +1,24 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Shell launchers MUST stay LF, even when checked out on Windows.
+# With CRLF a Mac fails to run them: "bad interpreter: /bin/bash^M".
+*.command  text eol=lf
+*.sh       text eol=lf
+
+# Windows batch files need CRLF.
+*.bat      text eol=crlf
+
+# Keep source and docs LF everywhere for consistent diffs.
+*.py       text eol=lf
+*.html     text eol=lf
+*.md       text eol=lf
+*.csv      text eol=lf
+
+# Binary - never touch.
+*.npy      binary
+*.png      binary
+*.jpg      binary
+*.mp4      binary
+*.mov      binary
+*.wav      binary

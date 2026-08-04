@@ -73,9 +73,10 @@ export SYNCTOOL_FFPROBE=/path/to/ffprobe
 
 ## Running it
 
-- **macOS / Linux** — double-click **`start-sync-tool.command`** (first time:
-  `chmod +x start-sync-tool.command`). It checks for Python and numpy, installing
-  numpy if needed.
+- **macOS** — run `bash mac-setup.sh` once, then double-click **`SyncTool.app`**
+  from then on. Setup handles Python, numpy and ffmpeg for you, and the app talks
+  in normal Mac dialogs rather than a Terminal. Full guide: **[MACOS.md](MACOS.md)**.
+- **Linux** — `chmod +x start-sync-tool.command && ./start-sync-tool.command`
 - **Windows** — double-click **`Start Sync Tool.bat`**.
 
 Or from a terminal:
@@ -256,7 +257,10 @@ Results from a cold start, with no hints given:
 | `exporters.py` | FCP7 XML (xmeml) timeline export for Premiere / Resolve / FCP7 |
 | `resolve_template.py` | Template for the exported Resolve script |
 | `Start Sync Tool.bat` | Windows launcher |
-| `start-sync-tool.command` | macOS / Linux launcher |
+| `SyncTool.app` | macOS app — double-click to run |
+| `mac-setup.sh` | macOS one-time setup (permissions, Python, ffmpeg) |
+| `start-sync-tool.command` | Terminal launcher for macOS / Linux |
+| `MACOS.md` | macOS setup guide and troubleshooting |
 
 ## Licence
 

@@ -1,0 +1,136 @@
+#!/bin/bash
+# Sync Tool - macOS app launcher.
+#
+# Everything the user sees is a normal Mac dialog; no Terminal knowledge needed.
+# Sets itself up on first run (Python check, numpy in a local venv, ffmpeg via
+# Homebrew) and then just starts the server and opens the browser.
+
+APP="$(cd "$(dirname "$0")/../.." && pwd)"       # …/SyncTool.app
+ROOT="$(dirname "$APP")"                          # folder holding the app
+cd "$ROOT" || exit 1
+LOG="$ROOT/.synctool-launch.log"
+: > "$LOG"
+exec 2>>"$LOG"
+
+say()   { osascript -e "display notification \"$1\" with title \"Sync Tool\"" >/dev/null 2>&1; }
+alert() { osascript -e "display alert \"Sync Tool\" message \"$1\" as critical buttons {\"OK\"} default button 1" >/dev/null 2>&1; }
+ask()   { osascript -e "display dialog \"$1\" buttons {\"Not now\",\"$2\"} default button \"$2\" with title \"Sync Tool\" with icon note" -e 'button returned of result' 2>/dev/null; }
+busy()  { osascript -e "display notification \"$1\" with title \"Sync Tool\"" >/dev/null 2>&1; }
+
+# Homebrew may not be on PATH for a GUI-launched app - add the usual spots.
+export PATH="/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:$PATH"
+
+# ---------------------------------------------------------------- server files
+if [ ! -f "$ROOT/server.py" ]; then
+  alert "Cannot find server.py.
+
+SyncTool.app must stay inside the sync-tool folder, next to server.py."
+  exit 1
+fi
+
+# ---------------------------------------------------------------------- python
+PY=""
+for c in python3 python3.13 python3.12 python3.11 python3.10; do
+  if command -v "$c" >/dev/null 2>&1 && "$c" -c 'import sys;exit(0 if sys.version_info>=(3,9) else 1)' 2>/dev/null; then
+    PY="$(command -v "$c")"; break
+  fi
+done
+
+if [ -z "$PY" ]; then
+  if [ "$(ask "Sync Tool needs Python 3, which isn't installed yet.
+
+macOS can install it for you - a system dialog will appear. This takes a few minutes.
+
+Install it now?" "Install Python")" = "Install Python" ]; then
+    xcode-select --install >/dev/null 2>&1
+    alert "Follow the macOS installer that just appeared.
+
+When it finishes, open Sync Tool again."
+  fi
+  exit 1
+fi
+
+# ------------------------------------------------------------------- numpy/venv
+# Prefer a local .venv - modern Python refuses system installs (PEP 668) and a
+# venv keeps everything inside this folder.
+VENV_PY="$ROOT/.venv/bin/python"
+if [ -x "$VENV_PY" ] && "$VENV_PY" -c "import numpy" >/dev/null 2>&1; then
+  PY="$VENV_PY"
+elif ! "$PY" -c "import numpy" >/dev/null 2>&1; then
+  busy "First run - setting up. This takes a minute."
+  if ! "$PY" -m venv "$ROOT/.venv" >>"$LOG" 2>&1; then
+    alert "Could not create the Python environment.
+
+Details are in .synctool-launch.log inside the sync-tool folder."
+    exit 1
+  fi
+  "$VENV_PY" -m pip install --upgrade pip >>"$LOG" 2>&1
+  if ! "$VENV_PY" -m pip install numpy >>"$LOG" 2>&1; then
+    alert "Could not install numpy (Sync Tool needs it to analyse audio).
+
+Check your internet connection and try again.
+Details are in .synctool-launch.log."
+    exit 1
+  fi
+  PY="$VENV_PY"
+fi
+
+# ------------------------------------------------------------------------ ffmpeg
+have_ffmpeg() { command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; }
+
+if ! have_ffmpeg; then
+  if command -v brew >/dev/null 2>&1; then
+    if [ "$(ask "Sync Tool needs ffmpeg to read your video and audio files.
+
+Install it now with Homebrew? This takes a couple of minutes." "Install ffmpeg")" = "Install ffmpeg" ]; then
+      busy "Installing ffmpeg…"
+      brew install ffmpeg >>"$LOG" 2>&1
+    fi
+  else
+    if [ "$(ask "Sync Tool needs ffmpeg, and the easiest way to get it is Homebrew (a standard Mac package manager) - which also isn't installed.
+
+Open the Homebrew site so you can install it? Then reopen Sync Tool and it will offer to finish the setup." "Open brew.sh")" = "Open brew.sh" ]; then
+      open "https://brew.sh"
+    fi
+  fi
+fi
+
+if ! have_ffmpeg; then
+  # not fatal: the app itself has an ffmpeg installer and a clear banner
+  say "Starting without ffmpeg - the app will help you install it."
+fi
+
+# ------------------------------------------------------------------------- run
+# Free the port if a previous run is still holding it.
+if command -v lsof >/dev/null 2>&1; then
+  for pid in $(lsof -ti tcp:8765 2>/dev/null); do kill "$pid" >/dev/null 2>&1; done
+fi
+
+say "Starting Sync Tool…"
+"$PY" "$ROOT/server.py" >>"$LOG" 2>&1 &
+SERVER_PID=$!
+
+# wait for it to answer before opening the browser
+for _ in $(seq 1 40); do
+  if curl -s -o /dev/null "http://127.0.0.1:8765/api/health" 2>/dev/null; then break; fi
+  sleep 0.25
+done
+
+if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+  alert "Sync Tool could not start.
+
+Details are in .synctool-launch.log inside the sync-tool folder."
+  exit 1
+fi
+
+open "http://localhost:8765"
+
+# Keep the app alive while the server runs, and offer a way to stop it.
+osascript -e 'display dialog "Sync Tool is running.
+
+Your browser should be open at localhost:8765.
+
+Click Quit when you are finished." buttons {"Quit"} default button "Quit" with title "Sync Tool" with icon note' >/dev/null 2>&1
+
+kill "$SERVER_PID" >/dev/null 2>&1
+exit 0
