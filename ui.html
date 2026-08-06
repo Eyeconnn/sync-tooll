@@ -338,9 +338,16 @@ progress::-webkit-progress-value{background:var(--accent);border-radius:99px}
       <div class="panel">
         <b style="font-size:13px">DaVinci Resolve</b>
         <p class="muted" style="font-size:12.5px;margin:6px 0 0">
-          File › Import › Timeline › Import AAF/EDL/XML… → the same XML.
-          (Or run the exported Python script in Workspace › Console — that route also
-          applies your metadata and clip colours.)</p>
+          File › Import › Timeline › Import AAF/EDL/XML… → the same XML.</p>
+        <p class="muted" style="font-size:12.5px;margin:8px 0 0">
+          Or use the script, which also writes your metadata and clip colours.
+          Install it and it appears in Resolve's own menu:</p>
+        <div class="row" style="margin-top:10px">
+          <button class="primary" onclick="installScript()">Install script into Resolve</button>
+          <button class="ghost" onclick="revealFile()">Show me the files</button>
+        </div>
+        <div id="instmsg" style="font-size:12.5px;margin-top:8px"></div>
+        <div id="insttargets" style="margin-top:8px"></div>
       </div>
     </div>
   </section>
@@ -872,6 +879,38 @@ async function doExport(){
   setStep(4);
   toast(r.xml?'Exported — import the XML into Premiere or Resolve':'Exported');
 }
+
+/* ---------- install the Resolve script where Resolve will find it ---------- */
+async function installScript(target){
+  const m=$('#instmsg'); m.innerHTML='<span class="muted">installing…</span>';
+  const r=await api('/api/installscript', target?{target}:{});
+  if(r.error){
+    m.innerHTML='<span class="err">'+esc(r.error)+'</span>';
+    return showTargets();
+  }
+  m.innerHTML=`<span class="good">Installed.</span>
+    <span class="muted">In Resolve: <b>${esc(r.menu)}</b></span>
+    <div class="faint" style="font-size:12px;margin-top:4px">${esc(r.installed)}</div>
+    <div class="faint" style="font-size:12px">Resolve reads this folder at startup —
+      restart Resolve if it's already open.</div>`;
+  toast('Script installed for DaVinci Resolve');
+  showTargets();
+}
+async function showTargets(){
+  const d=await api('/api/scripttargets');
+  const box=$('#insttargets');
+  if(!d.targets||!d.targets.length){ box.innerHTML=''; return }
+  box.innerHTML=`<details><summary class="muted" style="cursor:pointer;font-size:12.5px">
+      Choose a different location</summary>
+    <div style="margin-top:8px">${d.targets.map(t=>`
+      <div class="row" style="gap:8px;margin-bottom:5px">
+        <button class="mini" onclick="installScript('${jsPath(t.target)}')">Install here</button>
+        <span class="faint" style="font-size:12px">${esc(t.scope)}${t.exists?'':' — Resolve not found here'}</span>
+        <span class="faint" style="font-size:11.5px;flex:1;overflow:hidden;
+          text-overflow:ellipsis;white-space:nowrap">${esc(t.target)}</span>
+      </div>`).join('')}</div></details>`;
+}
+async function revealFile(){ await api('/api/reveal',{}); }
 
 /* ---------- ffmpeg health ---------- */
 async function checkHealth(){

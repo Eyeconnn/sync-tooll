@@ -278,6 +278,92 @@ def list_dirs(path):
             "blocked": blocked, "entries": n_entries}
 
 
+def resolve_script_dirs():
+    """Where DaVinci Resolve looks for scripts, per platform.
+
+    Resolve scans these on startup and lists what it finds under
+    Workspace > Scripts. 'Utility' is the subfolder that shows on every page.
+    The per-user location is preferred: it needs no admin rights.
+    """
+    home = os.path.expanduser("~")
+    cands = []
+    if sys.platform == "darwin":
+        cands = [
+            ("user", os.path.join(home, "Library/Application Support/Blackmagic Design/"
+                                        "DaVinci Resolve/Fusion/Scripts")),
+            ("all users", "/Library/Application Support/Blackmagic Design/"
+                          "DaVinci Resolve/Fusion/Scripts"),
+        ]
+    elif os.name == "nt":
+        appdata = os.environ.get("APPDATA", os.path.join(home, "AppData", "Roaming"))
+        pdata = os.environ.get("PROGRAMDATA", r"C:\ProgramData")
+        cands = [
+            ("user", os.path.join(appdata, "Blackmagic Design", "DaVinci Resolve",
+                                  "Support", "Fusion", "Scripts")),
+            ("user (alt)", os.path.join(appdata, "Blackmagic Design", "DaVinci Resolve",
+                                        "Fusion", "Scripts")),
+            ("all users", os.path.join(pdata, "Blackmagic Design", "DaVinci Resolve",
+                                       "Fusion", "Scripts")),
+        ]
+    else:
+        cands = [
+            ("user", os.path.join(home, ".local/share/DaVinciResolve/Fusion/Scripts")),
+            ("all users", "/opt/resolve/Fusion/Scripts"),
+        ]
+    out = []
+    for scope, base in cands:
+        out.append({
+            "scope": scope,
+            "base": base,
+            "target": os.path.join(base, "Utility"),
+            "exists": os.path.isdir(base),
+            "writable": os.access(base if os.path.isdir(base)
+                                  else os.path.dirname(base), os.W_OK)
+                        if os.path.isdir(os.path.dirname(base)) else False,
+        })
+    return out
+
+
+def install_resolve_script(src, target_dir=None):
+    """Copy the generated Resolve script into Resolve's Scripts/Utility folder."""
+    import shutil
+    if not src or not os.path.isfile(src):
+        raise RuntimeError("Export the files first - no Resolve script to install.")
+    cands = resolve_script_dirs()
+    if target_dir:
+        chosen = target_dir
+    else:
+        pref = [c for c in cands if c["exists"]] or cands
+        # prefer a per-user location (no admin needed)
+        pref.sort(key=lambda c: (0 if c["scope"].startswith("user") else 1))
+        chosen = pref[0]["target"]
+    try:
+        os.makedirs(chosen, exist_ok=True)
+    except PermissionError:
+        raise RuntimeError(f"No permission to write to {chosen}. "
+                           "Choose the per-user location instead.")
+    dest = os.path.join(chosen, os.path.basename(src))
+    shutil.copy2(src, dest)
+    return dest
+
+
+def reveal_in_file_manager(path):
+    if not path:
+        return False
+    p = path if os.path.isdir(path) else os.path.dirname(path)
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", path] if os.path.isfile(path) else ["open", p])
+        elif os.name == "nt":
+            subprocess.Popen(["explorer", "/select,", os.path.normpath(path)]
+                             if os.path.isfile(path) else ["explorer", os.path.normpath(p)])
+        else:
+            subprocess.Popen(["xdg-open", p])
+        return True
+    except Exception:
+        return False
+
+
 def native_pick_folder():
     """Open the OS folder picker.
 
@@ -505,6 +591,7 @@ def export_files(outdir):
             f.write(body.replace("__CSV_PATH__", csv_path.replace("\\", "\\\\")))
         out["script"] = script_path
         out["written"].append(script_path)
+    STATE["last_export"] = out
     return out
 
 
@@ -564,6 +651,19 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         data = json.loads(self.rfile.read(n) or b"{}")
         try:
+            if u.path == "/api/scripttargets":
+                return self._send({"targets": resolve_script_dirs(),
+                                   "platform": sys.platform,
+                                   "script": (STATE.get("last_export") or {}).get("script")})
+            if u.path == "/api/installscript":
+                src = data.get("script") or (STATE.get("last_export") or {}).get("script")
+                dest = install_resolve_script(src, data.get("target"))
+                return self._send({"installed": dest,
+                                   "menu": "Workspace › Scripts › Utility › "
+                                           + os.path.splitext(os.path.basename(dest))[0]})
+            if u.path == "/api/reveal":
+                return self._send({"ok": reveal_in_file_manager(
+                    data.get("path") or (STATE.get("last_export") or {}).get("script"))})
             if u.path == "/api/openprivacy":
                 if sys.platform == "darwin":
                     os.system("open 'x-apple.systempreferences:com.apple.preference."

@@ -176,8 +176,25 @@ Set a sequence name and timeline frame rate, then export. You get three files:
 sequence with your tracks, names and clip positions intact.
 
 **DaVinci Resolve** — File › Import › Timeline › Import AAF/EDL/XML… → the same
-file. (Or run the Python script in *Workspace › Console › Py3*, which additionally
-writes Scene/Shot/Angle/Reel metadata and clip colours onto the media pool items.)
+file.
+
+Or use the script, which additionally writes Scene/Shot/Angle/Reel metadata and
+clip colours onto the media pool items. Press **Install script into Resolve** and
+it's copied into Resolve's own scripts folder, appearing as
+*Workspace › Scripts › Utility › build_timeline_in_resolve*.
+
+The right folder is found automatically per platform — it prefers the per-user
+location, which needs no admin rights:
+
+| Platform | Folder |
+|---|---|
+| macOS | `~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility` |
+| Windows | `%APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Scripts\Utility` |
+| Linux | `~/.local/share/DaVinciResolve/Fusion/Scripts/Utility` |
+
+*Utility* is used because scripts there appear on every page of Resolve. If you'd
+rather install system-wide, expand **Choose a different location**. Resolve reads
+the folder at startup, so restart it if it's already open.
 
 All of it is non-destructive: the XML references your media where it already sits,
 and no media file is ever modified.
